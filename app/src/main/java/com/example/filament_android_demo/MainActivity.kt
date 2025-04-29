@@ -18,15 +18,27 @@ import androidx.compose.ui.tooling.preview.Preview
 import com.example.filament_android_demo.ui.theme.Filament_android_demoTheme
 
 class MainActivity : ComponentActivity() {
+  private lateinit var headlessRenderer: HeadlessRenderer
+
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+    headlessRenderer = HeadlessRenderer()
+    try {
+      val ok = headlessRenderer.init()
+      if (!ok) {
+        Toast.makeText(this, "HeadlessRenderer 初始化失败", Toast.LENGTH_SHORT).show()
+      } else {
+        Toast.makeText(this, "HeadlessRenderer 初始化成功", Toast.LENGTH_SHORT).show()
+      }
+    } catch (e: Exception) {
+      Toast.makeText(this, "HeadlessRenderer 初始化异常: ${e.message}", Toast.LENGTH_SHORT).show()
+    }
     enableEdgeToEdge()
     setContent {
       Filament_android_demoTheme {
         Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
           Greeting(
-            name = "Android",
-            modifier = Modifier.padding(innerPadding)
+            name = "Android", modifier = Modifier.padding(innerPadding)
           )
         }
       }

@@ -43,7 +43,7 @@ class MainActivity : ComponentActivity() {
 
         // Initialize renderer - handle potential exceptions
         try {
-            isRendererInitialized = headlessRenderer.init() // Store result
+            isRendererInitialized = headlessRenderer.init(this) // Store result
             if (!isRendererInitialized) {
                 showToast("HeadlessRenderer 初始化失败")
                 Log.e("MainActivity", "HeadlessRenderer initialization failed.")

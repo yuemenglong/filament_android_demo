@@ -65,6 +65,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public class HeadlessRenderer {
 
+    // 可选：存储 ApplicationContext 以便后续使用
+    private volatile Context mApplicationContext;
+
   private static final String TAG = "HeadlessFilament";
 
   // --- Configuration ---
@@ -101,10 +104,26 @@ public class HeadlessRenderer {
   private final AtomicBoolean mIsCleanedUp = new AtomicBoolean(false);
 
 
-  public boolean init() {
-    // ... (Initialization checks remain the same) ...
-    if (mIsInitialized.get()) return true;
-    if (mIsCleanedUp.get()) return false;
+  /**
+   * Initializes the HeadlessRenderer, sets up Filament resources, and loads the initial model.
+   *
+   * @param context The Android application context, needed for accessing assets.
+   * @return true if core Filament initialization was successful, false otherwise.
+   *         Note: This return value does *not* guarantee the model loaded successfully,
+   *         as model loading happens asynchronously after initialization.
+   */
+  public boolean init(@NonNull Context context) {
+    if (mIsInitialized.get()) {
+      Log.w(TAG, "Already initialized.");
+      return true;
+    }
+    if (mIsCleanedUp.get()) {
+      Log.e(TAG, "Cannot initialize after cleanup.");
+      return false;
+    }
+
+    // 可选：存储 context 以便后续使用
+    mApplicationContext = context.getApplicationContext();
 
     Log.i(TAG, "Initializing HeadlessRenderer...");
 
@@ -122,7 +141,10 @@ public class HeadlessRenderer {
           Filament.init();
           Utils.INSTANCE.init();
           mEngine = Engine.create();
-          if (mEngine == null) return false; // Logged inside
+          if (mEngine == null) { // Check and log here
+            Log.e(TAG, "Failed to create Filament Engine.");
+            return false;
+          }
           Log.i(TAG, "Filament engine created (Backend: " + mEngine.getBackend() + ")");
 
           // Use gltfio's MaterialProvider
@@ -131,14 +153,15 @@ public class HeadlessRenderer {
           // Use the two-argument ResourceLoader constructor
           mResourceLoader = new ResourceLoader(mEngine, true /*normalizeSkinningWeights*/);
 
-
           mSwapChain = mEngine.createSwapChain(IMAGE_WIDTH, IMAGE_HEIGHT, SwapChainFlags.CONFIG_READABLE);
           if (mSwapChain == null) { /* cleanup and return false */
             Log.e(TAG, "Failed to create headless SwapChain.");
-            if (mAssetLoader != null) mAssetLoader.destroy(); // Cleanup what was created
+            if (mAssetLoader != null) mAssetLoader.destroy();
             if (mResourceLoader != null) mResourceLoader.destroy();
-            if (materialProvider != null)
-              materialProvider.destroyMaterials(); // UbershaderProvider doesn't need destroy() itself
+            // UbershaderProvider doesn't need destroy() itself, MaterialProvider interface might
+            // but typically UbershaderProvider manages its materials via AssetLoader.
+            // If using a different MaterialProvider, it might need explicit cleanup.
+            // materialProvider.destroyMaterials(); // Usually handled by AssetLoader/Engine
             if (mEngine != null) mEngine.destroy();
             mEngine = null;
             return false;
@@ -155,17 +178,21 @@ public class HeadlessRenderer {
           mView.setCamera(mCamera);
           mView.setViewport(new Viewport(0, 0, IMAGE_WIDTH, IMAGE_HEIGHT));
 
+          // Default camera setup (adjust as needed)
           mCamera.setProjection(60.0, (double) IMAGE_WIDTH / IMAGE_HEIGHT, 0.1, 1000.0, Camera.Fov.VERTICAL);
-          mCamera.lookAt(0.0, 1.0, 5.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0);
+          // Place camera slightly further back or adjust model position/scale later
+          mCamera.lookAt(0.0, 1.0, 5.0, // Eye position
+                         0.0, 0.0, 0.0, // Target position
+                         0.0, 1.0, 0.0); // Up vector
 
           mSkybox = new Skybox.Builder()
-            .color(SKY_COLOR[0], SKY_COLOR[1], SKY_COLOR[2], SKY_COLOR[3])
-            .build(mEngine);
+                  .color(SKY_COLOR[0], SKY_COLOR[1], SKY_COLOR[2], SKY_COLOR[3])
+                  .build(mEngine);
           mScene.setSkybox(mSkybox);
           Log.i(TAG, "Skybox created.");
 
           Log.i(TAG, "Filament core resources initialized successfully on render thread.");
-          return true;
+          return true; // Core initialization successful
         } catch (Exception e) {
           Log.e(TAG, "Exception during initialization task on render thread: ", e);
           cleanupFilamentResourcesInternal(); // Attempt cleanup on the same thread
@@ -179,8 +206,26 @@ public class HeadlessRenderer {
 
       if (success) {
         mIsInitialized.set(true);
-        Log.i(TAG, "HeadlessRenderer initialization successful (waited).");
-        return true;
+        Log.i(TAG, "HeadlessRenderer core initialization successful (waited).");
+
+        // ***** MODIFICATION START *****
+        // 初始化成功后异步加载模型
+        Log.i(TAG, "Initiating initial model load: assets/man1.glb");
+        loadModel(context, "assets/man1.glb")
+            .thenAccept(modelLoaded -> {
+                if (modelLoaded) {
+                    Log.i(TAG, "Initial model 'assets/man1.glb' loaded successfully (async).");
+                } else {
+                    Log.e(TAG, "Initial model 'assets/man1.glb' failed to load (async).");
+                }
+            })
+            .exceptionally(ex -> {
+                Log.e(TAG, "Exception occurred during initial model load (async).", ex);
+                return null;
+            });
+        // ***** MODIFICATION END *****
+
+        return true; // Return true for successful core init
       } else {
         Log.e(TAG, "HeadlessRenderer initialization failed on render thread (waited).");
         shutdownExecutorService(); // Clean up executor if task failed
@@ -195,12 +240,12 @@ public class HeadlessRenderer {
       Log.e(TAG, "Initialization interrupted: ", e);
       shutdownExecutorService();
       return false;
-    } catch (Exception e) { // Catches TimeoutException
+    } catch (Exception e) { // Catches TimeoutException and others
       Log.e(TAG, "Exception during initialization (e.g., timeout): ", e);
       shutdownExecutorService();
       return false;
-    } finally {
     }
+    // 移除 finally 块（原本为空）
   }
 
 

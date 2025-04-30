@@ -65,8 +65,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public class HeadlessRenderer {
 
-    // 可选：存储 ApplicationContext 以便后续使用
-    private volatile Context mApplicationContext;
+  // 可选：存储 ApplicationContext 以便后续使用
+  private volatile Context mApplicationContext;
 
   private static final String TAG = "HeadlessFilament";
 
@@ -104,13 +104,90 @@ public class HeadlessRenderer {
   private final AtomicBoolean mIsCleanedUp = new AtomicBoolean(false);
 
 
+  private boolean initFilamentCore() {
+    Filament.init();
+    Utils.INSTANCE.init();
+    mEngine = Engine.create();
+    if (mEngine == null) { // Check and log here
+      Log.e(TAG, "Failed to create Filament Engine.");
+      return false;
+    }
+    Log.i(TAG, "Filament engine created (Backend: " + mEngine.getBackend() + ")");
+
+    // Use gltfio's MaterialProvider
+    MaterialProvider materialProvider = new UbershaderProvider(mEngine);
+    mAssetLoader = new AssetLoader(mEngine, materialProvider, EntityManager.get());
+    // Use the two-argument ResourceLoader constructor
+    mResourceLoader = new ResourceLoader(mEngine, true /*normalizeSkinningWeights*/);
+
+    mSwapChain = mEngine.createSwapChain(IMAGE_WIDTH, IMAGE_HEIGHT, SwapChainFlags.CONFIG_READABLE);
+    if (mSwapChain == null) { /* cleanup and return false */
+      Log.e(TAG, "Failed to create headless SwapChain.");
+      if (mAssetLoader != null) mAssetLoader.destroy();
+      if (mResourceLoader != null) mResourceLoader.destroy();
+      // UbershaderProvider doesn't need destroy() itself, MaterialProvider interface might
+      // but typically UbershaderProvider manages its materials via AssetLoader.
+      // If using a different MaterialProvider, it might need explicit cleanup.
+      // materialProvider.destroyMaterials(); // Usually handled by AssetLoader/Engine
+      if (mEngine != null) mEngine.destroy();
+      mEngine = null;
+      return false;
+    }
+    Log.i(TAG, "Headless SwapChain created.");
+
+    mRenderer = mEngine.createRenderer();
+    mScene = mEngine.createScene();
+    mView = mEngine.createView();
+    mCameraEntity = EntityManager.get().create();
+    mCamera = mEngine.createCamera(mCameraEntity);
+
+    mView.setScene(mScene);
+    mView.setCamera(mCamera);
+    mView.setViewport(new Viewport(0, 0, IMAGE_WIDTH, IMAGE_HEIGHT));
+
+    // Default camera setup (adjust as needed)
+    mCamera.setProjection(60.0, (double) IMAGE_WIDTH / IMAGE_HEIGHT, 0.1, 1000.0, Camera.Fov.VERTICAL);
+    // Place camera slightly further back or adjust model position/scale later
+    mCamera.lookAt(0.0, 1.0, 5.0, // Eye position
+      0.0, 0.0, 0.0, // Target position
+      0.0, 1.0, 0.0); // Up vector
+
+    mSkybox = new Skybox.Builder()
+      .color(SKY_COLOR[0], SKY_COLOR[1], SKY_COLOR[2], SKY_COLOR[3])
+      .build(mEngine);
+    mScene.setSkybox(mSkybox);
+    Log.i(TAG, "Skybox created.");
+
+    Log.i(TAG, "Filament core resources initialized successfully on render thread.");
+    return true;
+  }
+
+  private void initLoadModel(Context context) {
+    // ***** MODIFICATION START *****
+    // 初始化成功后异步加载模型
+    Log.i(TAG, "Initiating initial model load: man1.glb");
+    loadModel(context, "man1.glb")
+      .thenAccept(modelLoaded -> {
+        if (modelLoaded) {
+          Log.i(TAG, "Initial model 'man1.glb' loaded successfully (async).");
+        } else {
+          Log.e(TAG, "Initial model 'man1.glb' failed to load (async).");
+        }
+      })
+      .exceptionally(ex -> {
+        Log.e(TAG, "Exception occurred during initial model 'man1.glb' load (async).", ex);
+        return null;
+      });
+    // ***** MODIFICATION END *****
+  }
+
   /**
    * Initializes the HeadlessRenderer, sets up Filament resources, and loads the initial model.
    *
    * @param context The Android application context, needed for accessing assets.
    * @return true if core Filament initialization was successful, false otherwise.
-   *         Note: This return value does *not* guarantee the model loaded successfully,
-   *         as model loading happens asynchronously after initialization.
+   * Note: This return value does *not* guarantee the model loaded successfully,
+   * as model loading happens asynchronously after initialization.
    */
   public boolean init(@NonNull Context context) {
     if (mIsInitialized.get()) {
@@ -137,62 +214,7 @@ public class HeadlessRenderer {
         Log.i(TAG, "Executing initialization task on render thread...");
         try {
           if (mIsInitialized.get()) return true; // Re-check inside task
-
-          Filament.init();
-          Utils.INSTANCE.init();
-          mEngine = Engine.create();
-          if (mEngine == null) { // Check and log here
-            Log.e(TAG, "Failed to create Filament Engine.");
-            return false;
-          }
-          Log.i(TAG, "Filament engine created (Backend: " + mEngine.getBackend() + ")");
-
-          // Use gltfio's MaterialProvider
-          MaterialProvider materialProvider = new UbershaderProvider(mEngine);
-          mAssetLoader = new AssetLoader(mEngine, materialProvider, EntityManager.get());
-          // Use the two-argument ResourceLoader constructor
-          mResourceLoader = new ResourceLoader(mEngine, true /*normalizeSkinningWeights*/);
-
-          mSwapChain = mEngine.createSwapChain(IMAGE_WIDTH, IMAGE_HEIGHT, SwapChainFlags.CONFIG_READABLE);
-          if (mSwapChain == null) { /* cleanup and return false */
-            Log.e(TAG, "Failed to create headless SwapChain.");
-            if (mAssetLoader != null) mAssetLoader.destroy();
-            if (mResourceLoader != null) mResourceLoader.destroy();
-            // UbershaderProvider doesn't need destroy() itself, MaterialProvider interface might
-            // but typically UbershaderProvider manages its materials via AssetLoader.
-            // If using a different MaterialProvider, it might need explicit cleanup.
-            // materialProvider.destroyMaterials(); // Usually handled by AssetLoader/Engine
-            if (mEngine != null) mEngine.destroy();
-            mEngine = null;
-            return false;
-          }
-          Log.i(TAG, "Headless SwapChain created.");
-
-          mRenderer = mEngine.createRenderer();
-          mScene = mEngine.createScene();
-          mView = mEngine.createView();
-          mCameraEntity = EntityManager.get().create();
-          mCamera = mEngine.createCamera(mCameraEntity);
-
-          mView.setScene(mScene);
-          mView.setCamera(mCamera);
-          mView.setViewport(new Viewport(0, 0, IMAGE_WIDTH, IMAGE_HEIGHT));
-
-          // Default camera setup (adjust as needed)
-          mCamera.setProjection(60.0, (double) IMAGE_WIDTH / IMAGE_HEIGHT, 0.1, 1000.0, Camera.Fov.VERTICAL);
-          // Place camera slightly further back or adjust model position/scale later
-          mCamera.lookAt(0.0, 1.0, 5.0, // Eye position
-                         0.0, 0.0, 0.0, // Target position
-                         0.0, 1.0, 0.0); // Up vector
-
-          mSkybox = new Skybox.Builder()
-                  .color(SKY_COLOR[0], SKY_COLOR[1], SKY_COLOR[2], SKY_COLOR[3])
-                  .build(mEngine);
-          mScene.setSkybox(mSkybox);
-          Log.i(TAG, "Skybox created.");
-
-          Log.i(TAG, "Filament core resources initialized successfully on render thread.");
-          return true; // Core initialization successful
+          return initFilamentCore();// Core initialization successful
         } catch (Exception e) {
           Log.e(TAG, "Exception during initialization task on render thread: ", e);
           cleanupFilamentResourcesInternal(); // Attempt cleanup on the same thread
@@ -207,24 +229,7 @@ public class HeadlessRenderer {
       if (success) {
         mIsInitialized.set(true);
         Log.i(TAG, "HeadlessRenderer core initialization successful (waited).");
-
-        // ***** MODIFICATION START *****
-        // 初始化成功后异步加载模型
-        Log.i(TAG, "Initiating initial model load: man1.glb");
-        loadModel(context, "man1.glb")
-            .thenAccept(modelLoaded -> {
-                if (modelLoaded) {
-                    Log.i(TAG, "Initial model 'man1.glb' loaded successfully (async).");
-                } else {
-                    Log.e(TAG, "Initial model 'man1.glb' failed to load (async).");
-                }
-            })
-            .exceptionally(ex -> {
-                Log.e(TAG, "Exception occurred during initial model 'man1.glb' load (async).", ex);
-                return null;
-            });
-        // ***** MODIFICATION END *****
-
+        initLoadModel(context); // Load model after core init
         return true; // Return true for successful core init
       } else {
         Log.e(TAG, "HeadlessRenderer initialization failed on render thread (waited).");

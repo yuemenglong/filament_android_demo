@@ -97,7 +97,6 @@ public class HeadlessRenderer {
     private final Handler mMainThreadHandler = new Handler(Looper.getMainLooper());
 
     private final AtomicBoolean mIsInitialized = new AtomicBoolean(false);
-    private final AtomicBoolean mIsInitializing = new AtomicBoolean(false);
     private final AtomicBoolean mIsCleanedUp = new AtomicBoolean(false);
 
 
@@ -105,11 +104,6 @@ public class HeadlessRenderer {
         // ... (Initialization checks remain the same) ...
         if (mIsInitialized.get()) return true;
         if (mIsCleanedUp.get()) return false;
-        if (!mIsInitializing.compareAndSet(false, true)) {
-            Log.w(TAG, "Initialization already in progress. Waiting briefly...");
-            try { Thread.sleep(500); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-            return mIsInitialized.get();
-        }
 
         Log.i(TAG, "Initializing HeadlessRenderer...");
 
@@ -203,7 +197,6 @@ public class HeadlessRenderer {
              shutdownExecutorService();
             return false;
         } finally {
-            mIsInitializing.set(false);
         }
     }
 

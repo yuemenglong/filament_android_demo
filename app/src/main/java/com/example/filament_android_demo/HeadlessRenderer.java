@@ -210,17 +210,17 @@ public class HeadlessRenderer {
 
         // ***** MODIFICATION START *****
         // 初始化成功后异步加载模型
-        Log.i(TAG, "Initiating initial model load: assets/man1.glb");
-        loadModel(context, "assets/man1.glb")
+        Log.i(TAG, "Initiating initial model load: man1.glb");
+        loadModel(context, "man1.glb")
             .thenAccept(modelLoaded -> {
                 if (modelLoaded) {
-                    Log.i(TAG, "Initial model 'assets/man1.glb' loaded successfully (async).");
+                    Log.i(TAG, "Initial model 'man1.glb' loaded successfully (async).");
                 } else {
-                    Log.e(TAG, "Initial model 'assets/man1.glb' failed to load (async).");
+                    Log.e(TAG, "Initial model 'man1.glb' failed to load (async).");
                 }
             })
             .exceptionally(ex -> {
-                Log.e(TAG, "Exception occurred during initial model load (async).", ex);
+                Log.e(TAG, "Exception occurred during initial model 'man1.glb' load (async).", ex);
                 return null;
             });
         // ***** MODIFICATION END *****

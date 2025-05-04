@@ -13,7 +13,7 @@ import android.os.Looper;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
-// Removed @Nullable import for ResourceLoader.UriCallback as it's not used directly this way
+import androidx.annotation.Nullable;
 
 import com.google.android.filament.Box; // Use this Box type
 import com.google.android.filament.Camera;
@@ -44,6 +44,7 @@ import com.google.android.filament.utils.Utils;
 
 
 import java.io.BufferedInputStream;
+import java.util.Arrays;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -591,6 +592,173 @@ public class HeadlessRenderer {
 
     Log.d(TAG, "render() returning future immediately.");
     return resultFuture;
+  }
+
+  /**
+   * 查找当前已加载资产中与给定名称匹配的第一个实体。
+   * 必须在 Filament 渲染线程上调用。
+   *
+   * @param name 实体名称
+   * @return 找到则返回实体ID，否则返回 Entity.NULL (0)
+   */
+  private int findEntityByNameInternal(@NonNull String name) {
+    if (mCurrentAsset == null || mAssetEntities == null) {
+      Log.w(TAG, "findEntityByNameInternal: No asset loaded.");
+      return Entity.NULL;
+    }
+    for (int entityId : mAssetEntities) {
+      String currentName = mCurrentAsset.getName(entityId);
+      if (currentName != null && currentName.equals(name)) {
+        Log.d(TAG, "findEntityByNameInternal: Found entity '" + name + "' with ID: " + entityId);
+        return entityId;
+      }
+    }
+    Log.w(TAG, "findEntityByNameInternal: Entity with name '" + name + "' not found.");
+    return Entity.NULL;
+  }
+
+  /**
+   * 计算将给定包围盒缩放/平移到单位立方体的变换矩阵。
+   * 必须在 Filament 渲染线程上调用。
+   *
+   * @param aabb        包围盒
+   * @param zOffset     沿Z轴偏移
+   * @param scaleFactor 附加缩放因子
+   * @return 4x4 OpenGL 格式变换矩阵
+   */
+  private float[] fitIntoUnitCubeInternal(@NonNull Box aabb, float zOffset, float scaleFactor) {
+    float[] center = aabb.getCenter();
+    float[] halfExtent = aabb.getHalfExtent();
+    float maxExtent = Math.max(halfExtent[0], Math.max(halfExtent[1], halfExtent[2]));
+    float baseScale = (maxExtent > 1e-6f) ? (1.0f / maxExtent) : 1.0f;
+    float finalScale = baseScale * scaleFactor;
+    float adjustedCenterZ = center[2] + (zOffset / finalScale);
+
+    float[] scaleMatrix = new float[16];
+    float[] translationMatrix = new float[16];
+    float[] finalTransform = new float[16];
+
+    Matrix.setIdentityM(scaleMatrix, 0);
+    Matrix.scaleM(scaleMatrix, 0, finalScale, finalScale, finalScale);
+
+    Matrix.setIdentityM(translationMatrix, 0);
+    Matrix.translateM(translationMatrix, 0, -center[0], -center[1], -adjustedCenterZ);
+
+    // 先平移后缩放: final = scale * translation
+    Matrix.multiplyMM(finalTransform, 0, scaleMatrix, 0, translationMatrix, 0);
+
+    Log.d(TAG, "fitIntoUnitCubeInternal: Center=" + Arrays.toString(center) +
+      ", HalfExtent=" + Arrays.toString(halfExtent) +
+      ", MaxExtent=" + maxExtent +
+      ", FinalScale=" + finalScale +
+      ", AdjustedCenterZ=" + adjustedCenterZ);
+    return finalTransform;
+  }
+
+  /**
+   * 异步调整模型视口，使指定实体或整体适配视图。
+   *
+   * @param entityName  目标实体名，null 表示整体
+   * @param scaleFactor 附加缩放因子
+   * @return 操作完成时完成的 CompletableFuture
+   */
+  @NonNull
+  public CompletableFuture<Void> updateViewPortAsync(@Nullable String entityName, float scaleFactor) {
+    CompletableFuture<Void> future = new CompletableFuture<>();
+    if (mIsCleanedUp.get()) {
+      future.completeExceptionally(new IllegalStateException("Renderer is cleaned up."));
+      return future;
+    }
+    if (!mIsInitialized.get()) {
+      future.completeExceptionally(new IllegalStateException("Renderer not initialized."));
+      return future;
+    }
+    if (mRenderExecutor == null || mRenderExecutor.isShutdown()) {
+      future.completeExceptionally(new IllegalStateException("Render executor not available."));
+      return future;
+    }
+    mRenderExecutor.submit(() -> {
+      try {
+        updateViewPortInternal(entityName, scaleFactor);
+        future.complete(null);
+      } catch (Exception e) {
+        Log.e(TAG, "Exception during updateViewPortInternal execution.", e);
+        future.completeExceptionally(e);
+      }
+    });
+    return future;
+  }
+
+  /**
+   * 内部实现：调整当前资产根节点变换，使目标实体或整体适配视图。
+   * 必须在渲染线程调用。
+   *
+   * @param entityName  目标实体名，null 表示整体
+   * @param scaleFactor 附加缩放因子
+   */
+  private void updateViewPortInternal(@Nullable String entityName, float scaleFactor) {
+    final float DEFAULT_VIEWPORT_Z_OFFSET = 4.0f;
+    if (mEngine == null || !mEngine.isValid()) {
+      Log.e(TAG, "updateViewPortInternal: Engine is not valid.");
+      return;
+    }
+    if (mCurrentAsset == null) {
+      Log.w(TAG, "updateViewPortInternal: No asset loaded.");
+      return;
+    }
+
+    TransformManager tcm = mEngine.getTransformManager();
+    com.google.android.filament.RenderableManager rm = mEngine.getRenderableManager();
+    int rootEntity = mCurrentAsset.getRoot();
+
+    if (!tcm.hasComponent(rootEntity)) {
+      Log.w(TAG, "updateViewPortInternal: Asset root entity (" + rootEntity + ") has no transform component.");
+      return;
+    }
+    int rootInstance = tcm.getInstance(rootEntity);
+
+    // --- 修正版实现 ---
+    Box targetAabb = new Box();
+    boolean specificAabbFound = false;
+
+    if (entityName != null) {
+      int targetEntityId = findEntityByNameInternal(entityName);
+      if (targetEntityId != Entity.NULL) {
+        if (rm.hasComponent(targetEntityId)) {
+          int renderableInstance = rm.getInstance(targetEntityId);
+          rm.getAxisAlignedBoundingBox(renderableInstance, targetAabb);
+          specificAabbFound = true;
+          Log.i(TAG, "updateViewPortInternal: Using AABB of specific entity '" + entityName + "' (ID: " + targetEntityId + ").");
+        } else {
+          Log.w(TAG, "updateViewPortInternal: Entity '" + entityName + "' found, but has no renderable component. Falling back to asset AABB.");
+        }
+      } else {
+        Log.w(TAG, "updateViewPortInternal: Entity '" + entityName + "' not found. Falling back to asset AABB.");
+      }
+    }
+
+    if (!specificAabbFound) {
+      Box assetBox = mCurrentAsset.getBoundingBox();
+      if (assetBox != null) {
+        targetAabb.setCenter(assetBox.getCenter()[0], assetBox.getCenter()[1], assetBox.getCenter()[2]);
+        targetAabb.setHalfExtent(assetBox.getHalfExtent()[0], assetBox.getHalfExtent()[1], assetBox.getHalfExtent()[2]);
+      } else {
+        Log.e(TAG, "updateViewPortInternal: Could not get bounding box from the asset.");
+        return;
+      }
+      Log.i(TAG, "updateViewPortInternal: Using AABB of the entire asset.");
+    }
+
+    float[] halfExtent = targetAabb.getHalfExtent();
+    final float epsilon = 1e-6f;
+    if (halfExtent[0] <= epsilon && halfExtent[1] <= epsilon && halfExtent[2] <= epsilon) {
+      Log.e(TAG, "updateViewPortInternal: Invalid or zero-sized target AABB obtained (HalfExtent: " + Arrays.toString(halfExtent) + "). Cannot calculate transform.");
+      return;
+    }
+
+    float[] transformMatrix = fitIntoUnitCubeInternal(targetAabb, DEFAULT_VIEWPORT_Z_OFFSET, scaleFactor);
+    tcm.setTransform(rootInstance, transformMatrix);
+    Log.i(TAG, "updateViewPortInternal: Applied new transform to asset root (" + rootEntity + ").");
   }
 
 

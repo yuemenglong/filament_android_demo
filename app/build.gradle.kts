@@ -45,6 +45,16 @@ dependencies {
     implementation("com.google.android.filament:gltfio-android:1.57.1")
     implementation("com.google.android.filament:filament-utils-android:1.57.1")
     implementation(libs.androidx.core.ktx)
+
+    // --- MediaPipe Tasks Vision ---
+    implementation("com.google.mediapipe:tasks-vision:0.10.14")
+
+    // --- CameraX dependencies ---
+    val cameraxVersion = "1.3.4"
+    implementation("androidx.camera:camera-core:$cameraxVersion")
+    implementation("androidx.camera:camera-camera2:$cameraxVersion")
+    implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
+    implementation("androidx.camera:camera-view:$cameraxVersion")
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(platform(libs.androidx.compose.bom))

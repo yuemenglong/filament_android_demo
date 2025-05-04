@@ -98,6 +98,11 @@ public class HeadlessRenderer {
   private volatile int[] mAssetEntities = null;
 
 
+  // ***** 新增：存储实体名称和其初始世界变换矩阵的 Map *****
+  // 使用 ConcurrentHashMap 以支持可能的并发读取（尽管写入只在渲染线程）
+  private volatile java.util.Map<String, float[]> mEntityInitialTransforms = new java.util.concurrent.ConcurrentHashMap<>();
+  // *********************************************************
+
   private ExecutorService mRenderExecutor = null;
   private final Handler mMainThreadHandler = new Handler(Looper.getMainLooper());
 
@@ -357,23 +362,44 @@ public class HeadlessRenderer {
         mScene.addEntities(mAssetEntities);
         Log.i(TAG, "Added " + mAssetEntities.length + " entities to the scene.");
 
-        // ***** MODIFICATION START *****
-        // 打印所有实体的名称，便于调试和分析
+        // ***** MODIFICATION START: Record Entity Names and Transforms *****
+        // 在加载新模型前，清除旧模型的变换信息
+        mEntityInitialTransforms.clear();
+        Log.d(TAG, "Cleared previous entity transform map.");
+
         if (mAssetEntities != null && mAssetEntities.length > 0) {
-          Log.i(TAG, "--- Entity Names in Asset '" + assetPath + "' ---");
+          Log.i(TAG, "--- Processing Entities in Asset '" + assetPath + "' for Transform Map ---");
+          TransformManager tm = mEngine.getTransformManager(); // 获取 TransformManager
+
           for (int entityId : mAssetEntities) {
             String entityName = newAsset.getName(entityId);
+
+            // 只处理有名称的实体
             if (entityName != null && !entityName.isEmpty()) {
-              Log.i(TAG, "Entity ID: " + entityId + ", Name: '" + entityName + "'");
+              // 检查实体是否有 Transform 组件
+              if (tm.hasComponent(entityId)) {
+                int instance = tm.getInstance(entityId);
+                float[] transformMatrix = new float[16]; // 分配空间存储 4x4 矩阵
+                tm.getTransform(instance, transformMatrix); // 获取世界变换矩阵
+
+                // 存储名称和变换矩阵到 Map 中
+                mEntityInitialTransforms.put(entityName, transformMatrix);
+                Log.i(TAG, "Stored transform for Entity ID: " + entityId + ", Name: '" + entityName + "'");
+                // 可以选择性打印矩阵内容进行调试:
+                // Log.d(TAG, "  Transform: " + Arrays.toString(transformMatrix));
+              } else {
+                Log.w(TAG, "Entity ID: " + entityId + ", Name: '" + entityName + "' has a name but no Transform component. Skipping transform storage.");
+              }
             } else {
-              Log.d(TAG, "Entity ID: " + entityId + " has no specific name in the glTF asset.");
+              // 可选：记录没有名称的实体ID
+              Log.d(TAG, "Entity ID: " + entityId + " has no specific name in the glTF asset. Skipping transform storage.");
             }
           }
-          Log.i(TAG, "--- End Entity Names ---");
+          Log.i(TAG, "--- Finished Processing Entities for Transform Map ---");
         } else {
           Log.w(TAG, "Asset '" + assetPath + "' loaded but reported 0 entities.");
         }
-        // ***** MODIFICATION END *****
+        // ***** MODIFICATION END: Record Entity Names and Transforms *****
 
         // --- Manual Transform to Unit Cube ---
         // The helper newAsset.transformToUnitCube(...) doesn't exist in 1.57.1
@@ -842,6 +868,14 @@ public class HeadlessRenderer {
 
   private void cleanupFilamentResourcesInternal() {
     Log.i(TAG, "Executing cleanupFilamentResourcesInternal on thread: " + Thread.currentThread().getName());
+
+    // ***** 新增：清空实体变换 Map *****
+    if (mEntityInitialTransforms != null) {
+        mEntityInitialTransforms.clear();
+        Log.d(TAG, "Cleared entity transform map during cleanup.");
+        mEntityInitialTransforms = null; // 显式设为 null
+    }
+    // ***********************************
 
     // Destroy asset first
     if (mCurrentAsset != null && mAssetLoader != null) {

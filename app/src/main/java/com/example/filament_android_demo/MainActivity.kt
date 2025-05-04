@@ -6,6 +6,8 @@ import android.graphics.Bitmap
 import android.os.Bundle
 import android.util.Log
 import android.view.ViewGroup
+import android.os.Build
+import android.view.Surface
 import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -163,14 +165,22 @@ class MainActivity : ComponentActivity(), FaceLandmarkerHelper.LandmarkerListene
             .requireLensFacing(cameraFacing)
             .build()
 
+        // 获取当前屏幕旋转角度 (兼容 API 级别)
+        val rotation = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            this.display?.rotation ?: Surface.ROTATION_0
+        } else {
+            @Suppress("DEPRECATION")
+            windowManager.defaultDisplay.rotation
+        }
+
         preview = Preview.Builder()
             .setTargetAspectRatio(AspectRatio.RATIO_16_9)
-            .setTargetRotation(this.display?.rotation ?: 0)
+            .setTargetRotation(rotation)
             .build()
 
         imageAnalyzer = ImageAnalysis.Builder()
             .setTargetAspectRatio(AspectRatio.RATIO_16_9)
-            .setTargetRotation(this.display?.rotation ?: 0)
+            .setTargetRotation(rotation)
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
             .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
             .build()

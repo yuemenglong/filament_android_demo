@@ -798,6 +798,92 @@ public class HeadlessRenderer {
       Log.w(TAG, "cleanup() called, but already cleaned up or cleanup in progress.");
     }
   }
+/**
+     * 对指定名称的实体进行绝对旋转（基于初始变换）。
+     * @param entityName 实体名称（glTF中定义的节点名）
+     * @param x X轴旋转角度（弧度）
+     * @param y Y轴旋转角度（弧度）
+     * @param z Z轴旋转角度（弧度）
+     * @return CompletableFuture<Boolean>，表示操作是否成功
+     */
+    @NonNull
+    public CompletableFuture<Boolean> rotate(@NonNull String entityName, float x, float y, float z) {
+        CompletableFuture<Boolean> resultFuture = new CompletableFuture<>();
+
+        if (mIsCleanedUp.get()) {
+            resultFuture.completeExceptionally(new IllegalStateException("Renderer已清理，无法旋转实体。"));
+            return resultFuture;
+        }
+        if (!mIsInitialized.get()) {
+            resultFuture.completeExceptionally(new IllegalStateException("Renderer未初始化，无法旋转实体。"));
+            return resultFuture;
+        }
+        if (mRenderExecutor == null || mRenderExecutor.isShutdown()) {
+            resultFuture.completeExceptionally(new IllegalStateException("渲染线程不可用。"));
+            return resultFuture;
+        }
+
+        mRenderExecutor.submit(() -> {
+            try {
+                // 1. 查找初始变换
+                float[] initialTransform = mEntityInitialTransforms.get(entityName);
+                if (initialTransform == null) {
+                    Log.e(TAG, "旋转失败：未缓存实体 '" + entityName + "' 的初始变换。");
+                    resultFuture.complete(false);
+                    return;
+                }
+
+                // 2. 查找实体ID
+                int entityId = findEntityByNameInternal(entityName);
+                if (entityId == 0) {
+                    Log.e(TAG, "旋转失败：缓存中存在但未找到实体 '" + entityName + "' 的ID。");
+                    resultFuture.complete(false);
+                    return;
+                }
+
+                TransformManager tm = mEngine.getTransformManager();
+                if (!tm.hasComponent(entityId)) {
+                    Log.e(TAG, "旋转失败：实体 '" + entityName + "' 没有变换组件。");
+                    resultFuture.complete(false);
+                    return;
+                }
+                int instance = tm.getInstance(entityId);
+
+                // 3. 构造旋转矩阵
+                float[] rotationX = new float[16];
+                float[] rotationY = new float[16];
+                float[] rotationZ = new float[16];
+                float[] temp = new float[16];
+                float[] desiredRotation = new float[16];
+
+                Matrix.setIdentityM(rotationX, 0);
+                Matrix.setRotateM(rotationX, 0, (float) Math.toDegrees(x), 1, 0, 0);
+                Matrix.setIdentityM(rotationY, 0);
+                Matrix.setRotateM(rotationY, 0, (float) Math.toDegrees(y), 0, 1, 0);
+                Matrix.setIdentityM(rotationZ, 0);
+                Matrix.setRotateM(rotationZ, 0, (float) Math.toDegrees(z), 0, 0, 1);
+
+                // desiredRotation = rotationZ * rotationY * rotationX
+                Matrix.multiplyMM(temp, 0, rotationY, 0, rotationX, 0);
+                Matrix.multiplyMM(desiredRotation, 0, rotationZ, 0, temp, 0);
+
+                // 4. newLocalTransform = initialTransform * desiredRotation
+                float[] newLocalTransform = new float[16];
+                Matrix.multiplyMM(newLocalTransform, 0, initialTransform, 0, desiredRotation, 0);
+
+                // 5. 应用变换
+                tm.setTransform(instance, newLocalTransform);
+
+                Log.i(TAG, "已为实体 '" + entityName + "' 设置绝对旋转 (x=" + x + ", y=" + y + ", z=" + z + ") 弧度。");
+                resultFuture.complete(true);
+            } catch (Exception e) {
+                Log.e(TAG, "旋转实体 '" + entityName + "' 时发生异常：", e);
+                resultFuture.completeExceptionally(e);
+            }
+        });
+
+        return resultFuture;
+    }
 
   private void cleanupInternal() {
     // ... (Cleanup logic remains the same, including calling shutdownExecutorService) ...

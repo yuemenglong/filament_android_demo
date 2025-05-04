@@ -356,6 +356,24 @@ public class HeadlessRenderer {
         mScene.addEntities(mAssetEntities);
         Log.i(TAG, "Added " + mAssetEntities.length + " entities to the scene.");
 
+        // ***** MODIFICATION START *****
+        // 打印所有实体的名称，便于调试和分析
+        if (mAssetEntities != null && mAssetEntities.length > 0) {
+          Log.i(TAG, "--- Entity Names in Asset '" + assetPath + "' ---");
+          for (int entityId : mAssetEntities) {
+            String entityName = newAsset.getName(entityId);
+            if (entityName != null && !entityName.isEmpty()) {
+              Log.i(TAG, "Entity ID: " + entityId + ", Name: '" + entityName + "'");
+            } else {
+              Log.d(TAG, "Entity ID: " + entityId + " has no specific name in the glTF asset.");
+            }
+          }
+          Log.i(TAG, "--- End Entity Names ---");
+        } else {
+          Log.w(TAG, "Asset '" + assetPath + "' loaded but reported 0 entities.");
+        }
+        // ***** MODIFICATION END *****
+
         // --- Manual Transform to Unit Cube ---
         // The helper newAsset.transformToUnitCube(...) doesn't exist in 1.57.1
         TransformManager tm = mEngine.getTransformManager();

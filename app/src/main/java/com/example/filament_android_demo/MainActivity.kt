@@ -327,26 +327,43 @@ fun MainScreen(
                     if (isLoading) return@Button
 
                     isLoading = true
-                    renderedBitmap = null
-                    Log.d("MainScreen", "Filament Render button clicked...")
+                    renderedBitmap = null // 清除之前的 bitmap
 
-                    renderer.render().handle { bitmap, throwable ->
-                        (context as? ComponentActivity)?.runOnUiThread {
-                            isLoading = false
-                            if (throwable != null) {
-                                val cause = if (throwable is CompletionException) throwable.cause else throwable
-                                Log.e("MainScreen", "Filament Rendering failed", cause)
-                                Toast.makeText(context, "Filament failed: ${cause?.message ?: "Unknown"}", Toast.LENGTH_LONG).show()
-                            } else if (bitmap != null) {
-                                Log.d("MainScreen", "Filament Rendering successful.")
-                                renderedBitmap = bitmap
-                                showDialog = true
-                            } else {
-                                Log.e("MainScreen", "Filament Rendering completed but bitmap was null.")
-                                Toast.makeText(context, "Filament failed: No bitmap", Toast.LENGTH_SHORT).show()
+                    val entityNameToCenter = "Wolf3D_Head" // 需要居中的实体名
+                    val scaleFactor = 5.0f // 可调整（1.0为紧贴，<1.0为有留白）
+
+                    Log.d("MainScreen", "Button clicked. Adjusting viewport for '$entityNameToCenter'...")
+
+                    renderer.updateViewPortAsync(entityNameToCenter, scaleFactor)
+                        .thenCompose {
+                            Log.d("MainScreen", "Viewport update complete. Starting Filament render...")
+                            renderer.render()
+                        }
+                        .handle { bitmap, throwable ->
+                            (context as? ComponentActivity)?.runOnUiThread {
+                                isLoading = false
+                                if (throwable != null) {
+                                    val cause = if (throwable is CompletionException) throwable.cause else throwable
+                                    Log.e("MainScreen", "Viewport update or Filament Rendering failed", cause)
+                                    Toast.makeText(
+                                        context,
+                                        "Operation failed: ${cause?.message ?: "Unknown error"}",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                } else if (bitmap != null) {
+                                    Log.d("MainScreen", "Filament Rendering successful after viewport update.")
+                                    renderedBitmap = bitmap
+                                    showDialog = true
+                                } else {
+                                    Log.e("MainScreen", "Operation completed but bitmap was null.")
+                                    Toast.makeText(
+                                        context,
+                                        "Operation failed: No bitmap returned",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
                             }
                         }
-                    }
                 },
                 enabled = isRendererReady && !isLoading
             ) {

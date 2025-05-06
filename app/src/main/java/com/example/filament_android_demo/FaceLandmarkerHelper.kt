@@ -337,6 +337,11 @@ class FaceLandmarkerHelper(
             val finishTimeMs = SystemClock.uptimeMillis()
             val inferenceTime = finishTimeMs - result.timestampMs()
 
+            // *** ADD LOGGING HERE ***
+            val matrixExists = result.facialTransformationMatrixes().isPresent && result.facialTransformationMatrixes().get().isNotEmpty()
+            Log.d(TAG, "returnLivestreamResult: Matrix present in raw result? $matrixExists (Timestamp: ${result.timestampMs()})")
+            // *************************
+
             faceLandmarkerHelperListener?.onResults(
                 ResultBundle(
                     result,

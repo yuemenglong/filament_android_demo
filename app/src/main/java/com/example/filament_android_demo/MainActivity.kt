@@ -244,6 +244,11 @@ class MainActivity : ComponentActivity(), FaceLandmarkerHelper.LandmarkerListene
 
   override fun onResults(resultBundle: FaceLandmarkerHelper.ResultBundle) {
     runOnUiThread {
+      // *** ADD LOGGING HERE ***
+      val result = resultBundle.result
+      val matrixExists = result.facialTransformationMatrixes().isPresent && result.facialTransformationMatrixes().get().isNotEmpty()
+      Log.d("MainActivity", "onResults: Received result. Matrix present? $matrixExists (Timestamp: ${result.timestampMs()})")
+      // *************************
       _landmarkResult.value = resultBundle.result
       _imageWidth.value = resultBundle.inputImageWidth
       _imageHeight.value = resultBundle.inputImageHeight

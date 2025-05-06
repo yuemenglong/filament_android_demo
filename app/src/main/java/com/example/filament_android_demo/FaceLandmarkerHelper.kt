@@ -109,6 +109,7 @@ class FaceLandmarkerHelper(
                     .setMinFacePresenceConfidence(minFacePresenceConfidence)
                     .setNumFaces(maxNumFaces)
                     .setOutputFaceBlendshapes(true)
+                    .setOutputFacialTransformationMatrixes(true)
                     .setRunningMode(runningMode)
 
             // The ResultListener and ErrorListener only use for LIVE_STREAM mode.

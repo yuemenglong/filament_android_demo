@@ -99,6 +99,7 @@ public class HeadlessRenderer {
 
   private static final String TAG = "HeadlessFilament";
   public static final String headMeshName = "Wolf3D_Head";
+  public static final String headName = "Head";
 
   // --- Configuration ---
   private static final int IMAGE_WIDTH = 600;
@@ -405,7 +406,7 @@ public class HeadlessRenderer {
           Log.d(TAG, "Render task: Calculated Euler Angles (X,Y,Z radians): " + Arrays.toString(eulerAngles));
 
           // Apply rotation to the Head entity
-          rotationApplied = rotateInternal(headMeshName, eulerAngles[0], eulerAngles[1], eulerAngles[2]);
+          rotationApplied = rotateInternal(headName, eulerAngles[0], eulerAngles[1], eulerAngles[2]);
           if(!rotationApplied) {
               Log.e(TAG, "Render task: Failed to apply rotation.");
           }

@@ -342,37 +342,240 @@ public class HeadlessRenderer {
       return future;
     }
     if (result == null) {
-      future.completeExceptionally(new IllegalArgumentException("FaceLandmarkerResult cannot be null."));
-      return future;
-    }
-
-    // 更安全地检查 Optional<List<List<Category>>>，避免潜在异常
-    java.util.Optional<java.util.List<java.util.List<Category>>> blendshapesOptional = result.faceBlendshapes();
-    if (!blendshapesOptional.isPresent() || blendshapesOptional.get().isEmpty() || blendshapesOptional.get().get(0).isEmpty()) {
-      Log.i(TAG, "applyLandmarkResult: No blendshapes found in the result or Optional is empty.");
+      // Changed to complete normally as per discussion, maybe no face was detected.
+      Log.i(TAG, "applyLandmarkResult: FaceLandmarkerResult is null, applying no changes.");
       future.complete(null);
       return future;
     }
 
-    // 提取 blendshape 到 Map<String, Float>
-    List<Category> blendshapes = blendshapesOptional.get().get(0);
+    // --- Extract Blendshapes ---
     Map<String, Float> blendshapeMap = new HashMap<>();
-    for (Category blendshape : blendshapes) {
-      blendshapeMap.put(blendshape.categoryName(), blendshape.score());
+    java.util.Optional<java.util.List<java.util.List<Category>>> blendshapesOptional = result.faceBlendshapes();
+    if (blendshapesOptional.isPresent() && !blendshapesOptional.get().isEmpty() && !blendshapesOptional.get().get(0).isEmpty()) {
+      List<Category> blendshapes = blendshapesOptional.get().get(0);
+      for (Category blendshape : blendshapes) {
+        blendshapeMap.put(blendshape.categoryName(), blendshape.score());
+      }
+      Log.d(TAG, "Extracted " + blendshapeMap.size() + " blendshapes.");
+    } else {
+      Log.i(TAG, "applyLandmarkResult: No blendshapes found in the result.");
+      // Continue without blendshapes, still apply rotation if available
     }
 
-    Log.d(TAG, "Submitting applyLandmarkResult task with " + blendshapeMap.size() + " blendshapes.");
+    // --- Extract Transformation Matrix ---
+    float[] faceTransformMatrix = null;
+    java.util.Optional<java.util.List<float[]>> matrixesOptional = result.facialTransformationMatrixes();
+    if (matrixesOptional.isPresent() && !matrixesOptional.get().isEmpty()) {
+        faceTransformMatrix = matrixesOptional.get().get(0); // Get the first face's matrix
+        if(faceTransformMatrix.length != 16) {
+            Log.e(TAG, "applyLandmarkResult: Facial transformation matrix has incorrect size: " + faceTransformMatrix.length);
+            faceTransformMatrix = null; // Invalidate if incorrect size
+        } else {
+             Log.d(TAG, "Extracted facial transformation matrix.");
+        }
+    } else {
+        Log.i(TAG, "applyLandmarkResult: No facial transformation matrix found in the result.");
+        // Continue without rotation
+    }
+
+    // --- Submit Task to Render Thread ---
+    // Need final references for the lambda
+    final Map<String, Float> finalBlendshapeMap = blendshapeMap;
+    final float[] finalFaceTransformMatrix = faceTransformMatrix; // Can be null
+
+    Log.d(TAG, "Submitting applyLandmarkResult task to render thread.");
     mRenderExecutor.submit(() -> {
       try {
-        setMorphWeightsInternal(blendshapeMap);
-        future.complete(null);
+        long startTime = System.nanoTime();
+
+        // 1. Apply Blendshapes
+        if (!finalBlendshapeMap.isEmpty()) {
+           Log.d(TAG, "Render task: Applying blendshapes...");
+           setMorphWeightsInternal(finalBlendshapeMap);
+        } else {
+           Log.d(TAG, "Render task: No blendshapes to apply.");
+        }
+
+        // 2. Apply Rotation (if matrix exists)
+        boolean rotationApplied = false;
+        if (finalFaceTransformMatrix != null) {
+          Log.d(TAG, "Render task: Calculating and applying rotation...");
+          // Convert matrix to Euler angles
+          float[] eulerAngles = matrixToEulerAnglesZYX(finalFaceTransformMatrix);
+          Log.d(TAG, "Render task: Calculated Euler Angles (X,Y,Z radians): " + Arrays.toString(eulerAngles));
+
+          // Apply rotation to the Head entity
+          rotationApplied = rotateInternal(headMeshName, eulerAngles[0], eulerAngles[1], eulerAngles[2]);
+          if(!rotationApplied) {
+              Log.e(TAG, "Render task: Failed to apply rotation.");
+          }
+        } else {
+             Log.d(TAG, "Render task: No rotation matrix to apply.");
+        }
+
+        // 3. Update Bone Matrices (if rotation was applied)
+        if (rotationApplied) {
+            Log.d(TAG, "Render task: Updating bone matrices due to rotation...");
+            updateBoneMatricesInternal();
+        } else {
+            Log.d(TAG, "Render task: Skipping bone update as no rotation was applied.");
+        }
+
+        long endTime = System.nanoTime();
+        Log.d(TAG, "Render task: applyLandmarkResult execution took " + (endTime - startTime) / 1e6 + " ms.");
+
+        future.complete(null); // Signal successful completion
+
       } catch (Exception e) {
-        Log.e(TAG, "Exception during setMorphWeightsInternal execution.", e);
-        future.completeExceptionally(e);
+        Log.e(TAG, "Exception during applyLandmarkResult execution on render thread.", e);
+        future.completeExceptionally(e); // Signal failure
       }
     });
 
     return future;
+  }
+
+  /**
+   * Converts a 4x4 rotation matrix (in OpenGL column-major format) to Euler angles
+   * using the ZYX convention (intrinsic rotation).
+   * Note: This implementation assumes the input matrix is purely rotation or affine
+   * transformation where the upper-left 3x3 is a valid rotation matrix.
+   *
+   * @param matrix The 4x4 rotation matrix (float[16]).
+   * @return A float[3] array containing {angleX, angleY, angleZ} in radians.
+   */
+  private float[] matrixToEulerAnglesZYX(float[] matrix) {
+    // Based on http://www.euclideanspace.com/maths/geometry/rotations/conversions/matrixToEuler/index.htm
+    // and checking common ZYX implementations. Assumes matrix is column-major.
+    // matrix[col*4 + row]
+
+    float m00 = matrix[0]; // R11
+    float m01 = matrix[1]; // R21
+    float m02 = matrix[2]; // R31
+
+    float m10 = matrix[4]; // R12
+    float m11 = matrix[5]; // R22
+    float m12 = matrix[6]; // R32
+
+    float m20 = matrix[8];  // R13
+    float m21 = matrix[9];  // R23
+    float m22 = matrix[10]; // R33
+
+    float angleY, angleZ, angleX;
+
+    // Calculate Y-axis rotation (Pitch)
+    angleY = (float) -Math.asin(Math.max(-1.0f, Math.min(1.0f, m20))); // -asin(R13)
+
+    // Check for gimbal lock (when cos(angleY) is close to 0)
+    if (Math.abs(Math.cos(angleY)) > 1e-6) {
+      // Not in gimbal lock
+      // Calculate X-axis rotation (Roll)
+      angleX = (float) Math.atan2(m21, m22); // atan2(R23, R33)
+      // Calculate Z-axis rotation (Yaw)
+      angleZ = (float) Math.atan2(m10, m00); // atan2(R12, R11)
+    } else {
+      // Gimbal lock
+      Log.w(TAG, "Gimbal lock detected during Euler angle conversion.");
+      // Assume Z = 0 (standard convention)
+      angleZ = 0.0f;
+      // Calculate X-axis rotation (Roll) based on the remaining elements
+      angleX = (float) Math.atan2(-m12, m11); // atan2(-R32, R22)
+    }
+
+    // Return in {X, Y, Z} order for the rotate function
+    return new float[]{angleX, angleY, angleZ};
+  }
+
+  /**
+   * Internal method to update bone matrices for the current asset.
+   * Must be called on the render thread.
+   */
+  private void updateBoneMatricesInternal() {
+    if (mEngine == null || !mEngine.isValid() || mCurrentAsset == null) {
+        Log.w(TAG, "updateBoneMatricesInternal: Invalid state.");
+        return;
+    }
+    // NOTE: FilamentAsset might have multiple instances in the future,
+    // but typically there's one for a single loaded glTF.
+    // Get the default instance (index 0).
+    com.google.android.filament.gltfio.FilamentInstance filamentInstance = mCurrentAsset.getInstance();
+    if (filamentInstance != null) {
+        com.google.android.filament.gltfio.Animator animator = filamentInstance.getAnimator();
+        if (animator != null) {
+            Log.d(TAG, "Updating bone matrices...");
+            animator.updateBoneMatrices();
+        } else {
+            Log.d(TAG, "updateBoneMatricesInternal: No animator found on the instance.");
+        }
+    } else {
+       Log.w(TAG, "updateBoneMatricesInternal: No FilamentInstance found on the asset.");
+    }
+  }
+
+  /**
+   * Internal core logic for rotating an entity.
+   * Must be called on the render thread.
+   *
+   * @param entityName Entity name
+   * @param x          X rotation (radians)
+   * @param y          Y rotation (radians)
+   * @param z          Z rotation (radians)
+   * @return true if successful, false otherwise
+   */
+  private boolean rotateInternal(@NonNull String entityName, float x, float y, float z) {
+      if (mEngine == null || !mEngine.isValid()) {
+          Log.e(TAG, "rotateInternal: Engine is not valid.");
+          return false;
+      }
+
+      // 1. 查找初始变换
+      float[] initialTransform = mEntityInitialTransforms.get(entityName);
+      if (initialTransform == null) {
+          Log.e(TAG, "rotateInternal failed: Initial transform for entity '" + entityName + "' not cached.");
+          return false;
+      }
+
+      // 2. 查找实体ID
+      int entityId = findEntityByNameInternal(entityName);
+      if (entityId == Entity.NULL) { // Check against Entity.NULL which is 0
+          Log.e(TAG, "rotateInternal failed: Entity '" + entityName + "' not found (despite having cached transform).");
+          return false;
+      }
+
+      TransformManager tm = mEngine.getTransformManager();
+      if (!tm.hasComponent(entityId)) {
+          Log.e(TAG, "rotateInternal failed: Entity '" + entityName + "' has no Transform component.");
+          return false;
+      }
+      int instance = tm.getInstance(entityId);
+
+      // 3. 构造旋转矩阵 (Z * Y * X order)
+      float[] rotationX = new float[16];
+      float[] rotationY = new float[16];
+      float[] rotationZ = new float[16];
+      float[] temp = new float[16];
+      float[] desiredRotation = new float[16];
+
+      Matrix.setIdentityM(rotationX, 0);
+      Matrix.rotateM(rotationX, 0, (float) Math.toDegrees(x), 1, 0, 0); // rotateM takes degrees
+      Matrix.setIdentityM(rotationY, 0);
+      Matrix.rotateM(rotationY, 0, (float) Math.toDegrees(y), 0, 1, 0);
+      Matrix.setIdentityM(rotationZ, 0);
+      Matrix.rotateM(rotationZ, 0, (float) Math.toDegrees(z), 0, 0, 1);
+
+      // desiredRotation = rotationZ * rotationY * rotationX
+      Matrix.multiplyMM(temp, 0, rotationY, 0, rotationX, 0);
+      Matrix.multiplyMM(desiredRotation, 0, rotationZ, 0, temp, 0);
+
+      // 4. newLocalTransform = initialTransform * desiredRotation
+      float[] newLocalTransform = new float[16];
+      Matrix.multiplyMM(newLocalTransform, 0, initialTransform, 0, desiredRotation, 0);
+
+      // 5. 应用变换
+      tm.setTransform(instance, newLocalTransform);
+
+      Log.d(TAG, "Applied absolute rotation to entity '" + entityName + "' (x=" + x + ", y=" + y + ", z=" + z + ").");
+      return true;
   }
 
   /**

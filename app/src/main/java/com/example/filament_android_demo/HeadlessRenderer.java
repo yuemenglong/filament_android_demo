@@ -1231,12 +1231,20 @@ public class HeadlessRenderer {
       if (numMorphTargets > 0) {
         Log.d(TAG, "Entity ID " + entityId + " has " + numMorphTargets + " morph targets.");
         for (int j = 0; j < numMorphTargets; j++) {
-          String morphName = mCurrentAsset.getMorphTargetNameAt(entityId, j);
+          String[] morphNames = mCurrentAsset.getMorphTargetNames(entityId);
+          String morphName = null;
+          if (morphNames != null && j < morphNames.length) {
+            morphName = morphNames[j];
+          } else if (morphNames != null) {
+            Log.w(TAG, "  Error: Morph target index " + j + " is out of bounds for entity " + entityId + " (name array size: " + morphNames.length + ")");
+          }
           if (morphName != null && !morphName.isEmpty()) {
             MorphInfo info = new MorphInfo(entityId, morphName, j, numMorphTargets);
             mMorphTargetInfoMap.computeIfAbsent(morphName, k -> new ArrayList<>()).add(info);
             Log.d(TAG, "  Added morph info: Name='" + morphName + "', Entity=" + entityId + ", Index=" + j);
             totalMorphTargetsFound++;
+          } else if (morphName == null) {
+            // 已在上方打印越界错误日志
           } else {
             Log.w(TAG, "  Warning: Unnamed morph target at index " + j + " on entity " + entityId);
           }
@@ -1296,7 +1304,7 @@ public class HeadlessRenderer {
 
         if (rm.hasComponent(entityId)) {
           var instance = rm.getInstance(entityId);
-          rm.setMorphWeights(instance, finalWeights);
+          rm.setMorphWeights(instance, finalWeights, 0);
         } else {
           Log.w(TAG, "Entity " + entityId + " no longer has renderable component when applying weights?");
         }

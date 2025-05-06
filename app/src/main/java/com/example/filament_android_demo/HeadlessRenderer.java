@@ -22,6 +22,7 @@ import com.google.android.filament.Entity;
 import com.google.android.filament.EntityManager;
 import com.google.android.filament.Filament;
 // Removed direct import of filament.MaterialProvider if present
+import com.google.android.filament.LightManager;
 import com.google.android.filament.Renderer;
 import com.google.android.filament.Scene;
 import com.google.android.filament.Skybox;
@@ -72,8 +73,8 @@ public class HeadlessRenderer {
   private static final String TAG = "HeadlessFilament";
 
   // --- Configuration ---
-  private static final int IMAGE_WIDTH = 1280;
-  private static final int IMAGE_HEIGHT = 720;
+  private static final int IMAGE_WIDTH = 600;
+  private static final int IMAGE_HEIGHT = 800;
   private static final float[] SKY_COLOR = {0.2f, 0.4f, 0.8f, 1.0f};
   private static final long RENDER_TIMEOUT_SECONDS = 15;
   private static final long INIT_TIMEOUT_SECONDS = 20;
@@ -90,6 +91,7 @@ public class HeadlessRenderer {
   private volatile Camera mCamera = null;
   private volatile int mCameraEntity = 0;
   private volatile Skybox mSkybox = null;
+  private volatile int mLightEntity = 0; // 新增：光源实体ID
 
   // --- gltfio Objects ---
   private volatile AssetLoader mAssetLoader = null;
@@ -163,6 +165,36 @@ public class HeadlessRenderer {
       .build(mEngine);
     mScene.setSkybox(mSkybox);
     Log.i(TAG, "Skybox created.");
+
+    // ***** 添加方向光源 START *****
+    try {
+      mLightEntity = EntityManager.get().create();
+
+      // 简单的方向光（类似阳光）
+      final float lightIntensity = 100_000.0f; // Lux
+      final float[] lightColor = {0.98f, 0.92f, 0.89f}; // 略带暖色
+      final float[] lightDirection = {0.5f, -1.0f, -0.8f};
+
+      // 归一化方向向量
+      float len = (float) Math.sqrt(lightDirection[0] * lightDirection[0] + lightDirection[1] * lightDirection[1] + lightDirection[2] * lightDirection[2]);
+      lightDirection[0] /= len;
+      lightDirection[1] /= len;
+      lightDirection[2] /= len;
+
+      new com.google.android.filament.LightManager.Builder(com.google.android.filament.LightManager.Type.DIRECTIONAL)
+        .color(lightColor[0], lightColor[1], lightColor[2])
+        .intensity(lightIntensity)
+        .direction(lightDirection[0], lightDirection[1], lightDirection[2])
+        .castShadows(true)
+        .build(mEngine, mLightEntity);
+
+      mScene.addEntity(mLightEntity);
+      Log.i(TAG, "Directional light created and added to scene (Entity ID: " + mLightEntity + ").");
+
+    } catch (Exception e) {
+      Log.e(TAG, "Failed to create light source.", e);
+    }
+    // ***** 添加方向光源 END *****
 
     Log.i(TAG, "Filament core resources initialized successfully on render thread.");
     return true;
@@ -798,92 +830,94 @@ public class HeadlessRenderer {
       Log.w(TAG, "cleanup() called, but already cleaned up or cleanup in progress.");
     }
   }
-/**
-     * 对指定名称的实体进行绝对旋转（基于初始变换）。
-     * @param entityName 实体名称（glTF中定义的节点名）
-     * @param x X轴旋转角度（弧度）
-     * @param y Y轴旋转角度（弧度）
-     * @param z Z轴旋转角度（弧度）
-     * @return CompletableFuture<Boolean>，表示操作是否成功
-     */
-    @NonNull
-    public CompletableFuture<Boolean> rotate(@NonNull String entityName, float x, float y, float z) {
-        CompletableFuture<Boolean> resultFuture = new CompletableFuture<>();
 
-        if (mIsCleanedUp.get()) {
-            resultFuture.completeExceptionally(new IllegalStateException("Renderer已清理，无法旋转实体。"));
-            return resultFuture;
-        }
-        if (!mIsInitialized.get()) {
-            resultFuture.completeExceptionally(new IllegalStateException("Renderer未初始化，无法旋转实体。"));
-            return resultFuture;
-        }
-        if (mRenderExecutor == null || mRenderExecutor.isShutdown()) {
-            resultFuture.completeExceptionally(new IllegalStateException("渲染线程不可用。"));
-            return resultFuture;
-        }
+  /**
+   * 对指定名称的实体进行绝对旋转（基于初始变换）。
+   *
+   * @param entityName 实体名称（glTF中定义的节点名）
+   * @param x          X轴旋转角度（弧度）
+   * @param y          Y轴旋转角度（弧度）
+   * @param z          Z轴旋转角度（弧度）
+   * @return CompletableFuture<Boolean>，表示操作是否成功
+   */
+  @NonNull
+  public CompletableFuture<Boolean> rotate(@NonNull String entityName, float x, float y, float z) {
+    CompletableFuture<Boolean> resultFuture = new CompletableFuture<>();
 
-        mRenderExecutor.submit(() -> {
-            try {
-                // 1. 查找初始变换
-                float[] initialTransform = mEntityInitialTransforms.get(entityName);
-                if (initialTransform == null) {
-                    Log.e(TAG, "旋转失败：未缓存实体 '" + entityName + "' 的初始变换。");
-                    resultFuture.complete(false);
-                    return;
-                }
-
-                // 2. 查找实体ID
-                int entityId = findEntityByNameInternal(entityName);
-                if (entityId == 0) {
-                    Log.e(TAG, "旋转失败：缓存中存在但未找到实体 '" + entityName + "' 的ID。");
-                    resultFuture.complete(false);
-                    return;
-                }
-
-                TransformManager tm = mEngine.getTransformManager();
-                if (!tm.hasComponent(entityId)) {
-                    Log.e(TAG, "旋转失败：实体 '" + entityName + "' 没有变换组件。");
-                    resultFuture.complete(false);
-                    return;
-                }
-                int instance = tm.getInstance(entityId);
-
-                // 3. 构造旋转矩阵
-                float[] rotationX = new float[16];
-                float[] rotationY = new float[16];
-                float[] rotationZ = new float[16];
-                float[] temp = new float[16];
-                float[] desiredRotation = new float[16];
-
-                Matrix.setIdentityM(rotationX, 0);
-                Matrix.setRotateM(rotationX, 0, (float) Math.toDegrees(x), 1, 0, 0);
-                Matrix.setIdentityM(rotationY, 0);
-                Matrix.setRotateM(rotationY, 0, (float) Math.toDegrees(y), 0, 1, 0);
-                Matrix.setIdentityM(rotationZ, 0);
-                Matrix.setRotateM(rotationZ, 0, (float) Math.toDegrees(z), 0, 0, 1);
-
-                // desiredRotation = rotationZ * rotationY * rotationX
-                Matrix.multiplyMM(temp, 0, rotationY, 0, rotationX, 0);
-                Matrix.multiplyMM(desiredRotation, 0, rotationZ, 0, temp, 0);
-
-                // 4. newLocalTransform = initialTransform * desiredRotation
-                float[] newLocalTransform = new float[16];
-                Matrix.multiplyMM(newLocalTransform, 0, initialTransform, 0, desiredRotation, 0);
-
-                // 5. 应用变换
-                tm.setTransform(instance, newLocalTransform);
-
-                Log.i(TAG, "已为实体 '" + entityName + "' 设置绝对旋转 (x=" + x + ", y=" + y + ", z=" + z + ") 弧度。");
-                resultFuture.complete(true);
-            } catch (Exception e) {
-                Log.e(TAG, "旋转实体 '" + entityName + "' 时发生异常：", e);
-                resultFuture.completeExceptionally(e);
-            }
-        });
-
-        return resultFuture;
+    if (mIsCleanedUp.get()) {
+      resultFuture.completeExceptionally(new IllegalStateException("Renderer已清理，无法旋转实体。"));
+      return resultFuture;
     }
+    if (!mIsInitialized.get()) {
+      resultFuture.completeExceptionally(new IllegalStateException("Renderer未初始化，无法旋转实体。"));
+      return resultFuture;
+    }
+    if (mRenderExecutor == null || mRenderExecutor.isShutdown()) {
+      resultFuture.completeExceptionally(new IllegalStateException("渲染线程不可用。"));
+      return resultFuture;
+    }
+
+    mRenderExecutor.submit(() -> {
+      try {
+        // 1. 查找初始变换
+        float[] initialTransform = mEntityInitialTransforms.get(entityName);
+        if (initialTransform == null) {
+          Log.e(TAG, "旋转失败：未缓存实体 '" + entityName + "' 的初始变换。");
+          resultFuture.complete(false);
+          return;
+        }
+
+        // 2. 查找实体ID
+        int entityId = findEntityByNameInternal(entityName);
+        if (entityId == 0) {
+          Log.e(TAG, "旋转失败：缓存中存在但未找到实体 '" + entityName + "' 的ID。");
+          resultFuture.complete(false);
+          return;
+        }
+
+        TransformManager tm = mEngine.getTransformManager();
+        if (!tm.hasComponent(entityId)) {
+          Log.e(TAG, "旋转失败：实体 '" + entityName + "' 没有变换组件。");
+          resultFuture.complete(false);
+          return;
+        }
+        int instance = tm.getInstance(entityId);
+
+        // 3. 构造旋转矩阵
+        float[] rotationX = new float[16];
+        float[] rotationY = new float[16];
+        float[] rotationZ = new float[16];
+        float[] temp = new float[16];
+        float[] desiredRotation = new float[16];
+
+        Matrix.setIdentityM(rotationX, 0);
+        Matrix.setRotateM(rotationX, 0, (float) Math.toDegrees(x), 1, 0, 0);
+        Matrix.setIdentityM(rotationY, 0);
+        Matrix.setRotateM(rotationY, 0, (float) Math.toDegrees(y), 0, 1, 0);
+        Matrix.setIdentityM(rotationZ, 0);
+        Matrix.setRotateM(rotationZ, 0, (float) Math.toDegrees(z), 0, 0, 1);
+
+        // desiredRotation = rotationZ * rotationY * rotationX
+        Matrix.multiplyMM(temp, 0, rotationY, 0, rotationX, 0);
+        Matrix.multiplyMM(desiredRotation, 0, rotationZ, 0, temp, 0);
+
+        // 4. newLocalTransform = initialTransform * desiredRotation
+        float[] newLocalTransform = new float[16];
+        Matrix.multiplyMM(newLocalTransform, 0, initialTransform, 0, desiredRotation, 0);
+
+        // 5. 应用变换
+        tm.setTransform(instance, newLocalTransform);
+
+        Log.i(TAG, "已为实体 '" + entityName + "' 设置绝对旋转 (x=" + x + ", y=" + y + ", z=" + z + ") 弧度。");
+        resultFuture.complete(true);
+      } catch (Exception e) {
+        Log.e(TAG, "旋转实体 '" + entityName + "' 时发生异常：", e);
+        resultFuture.completeExceptionally(e);
+      }
+    });
+
+    return resultFuture;
+  }
 
   private void cleanupInternal() {
     // ... (Cleanup logic remains the same, including calling shutdownExecutorService) ...
@@ -957,9 +991,9 @@ public class HeadlessRenderer {
 
     // ***** 新增：清空实体变换 Map *****
     if (mEntityInitialTransforms != null) {
-        mEntityInitialTransforms.clear();
-        Log.d(TAG, "Cleared entity transform map during cleanup.");
-        mEntityInitialTransforms = null; // 显式设为 null
+      mEntityInitialTransforms.clear();
+      Log.d(TAG, "Cleared entity transform map during cleanup.");
+      mEntityInitialTransforms = null; // 显式设为 null
     }
     // ***********************************
 
@@ -1002,8 +1036,6 @@ public class HeadlessRenderer {
       mAssetLoader = null;
     }
 
-    // --- Destroy Core Filament Resources ---
-    // ... (Rest of the core resource destruction remains the same as previous version) ...
     if (mEngine != null && mEngine.isValid()) {
       Log.i(TAG, "Destroying core Filament resources...");
       try {
@@ -1015,7 +1047,17 @@ public class HeadlessRenderer {
           }
         }
 
-        // Destroy resources
+        if (mLightEntity != 0 && EntityManager.get().isAlive(mLightEntity)) {
+          LightManager lm = mEngine.getLightManager();
+          if (lm.hasComponent(mLightEntity)) {
+            lm.destroy(mLightEntity);
+            Log.d(TAG, "Destroyed light component for entity: " + mLightEntity);
+          }
+          EntityManager.get().destroy(mLightEntity);
+          Log.d(TAG, "Destroyed light entity: " + mLightEntity);
+          mLightEntity = 0;
+        }
+
         if (mSkybox != null && mEngine.isValidSkybox(mSkybox)) mEngine.destroySkybox(mSkybox);
         if (mCamera != null && mCamera.getEntity() != 0) {
           int entity = mCamera.getEntity();
@@ -1053,6 +1095,7 @@ public class HeadlessRenderer {
     mScene = null;
     mRenderer = null;
     mSwapChain = null;
+    mLightEntity = 0; // 确保即使引擎无效也重置
     mEngine = null; // Nullify engine last
   }
 

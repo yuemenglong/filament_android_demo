@@ -33,6 +33,9 @@ import com.google.android.filament.TransformManager;
 import com.google.android.filament.View;
 import com.google.android.filament.Viewport;
 
+import com.google.android.filament.RenderableManager; // 新增
+import com.google.mediapipe.tasks.components.containers.Category; // 新增
+
 // Correct gltfio imports based on provided source
 import com.google.android.filament.gltfio.AssetLoader;
 import com.google.android.filament.gltfio.FilamentAsset;
@@ -50,13 +53,15 @@ import java.util.Arrays;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-// Removed URI imports as the callback isn't directly used this way
-// import java.net.URI;
-// import java.net.URISyntaxException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -67,6 +72,27 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 
 public class HeadlessRenderer {
+
+  /**
+   * 存储单个实体上的 morph target 信息。
+   */
+  private static class MorphInfo {
+    final int entityId;
+    final String morphTargetName;
+    final int morphTargetIndex;
+    final int totalMorphTargetsForEntity;
+
+    MorphInfo(int entityId, String morphTargetName, int morphTargetIndex, int totalMorphTargetsForEntity) {
+      this.entityId = entityId;
+      this.morphTargetName = morphTargetName;
+      this.morphTargetIndex = morphTargetIndex;
+      this.totalMorphTargetsForEntity = totalMorphTargetsForEntity;
+    }
+  }
+
+  // Morph Target 名称 -> 受影响的 MorphInfo 列表
+  private volatile Map<String, List<MorphInfo>> mMorphTargetInfoMap = new ConcurrentHashMap<>();
+
 
   // 可选：存储 ApplicationContext 以便后续使用
   private volatile Context mApplicationContext;
@@ -293,8 +319,60 @@ public class HeadlessRenderer {
     // 移除 finally 块（原本为空）
   }
 
-  public void applyLandmarkResult(FaceLandmarkerResult result) {
-    /*TODO 应用result中的blendshapes到headMeshName对应的*/
+  /**
+   * 应用 MediaPipe FaceLandmarkerResult 的 blendshapes 到模型的 morph target。
+   * 异步在渲染线程执行。
+   *
+   * @param result FaceLandmarkerResult
+   */
+  @NonNull
+  public CompletableFuture<Void> applyLandmarkResult(@Nullable FaceLandmarkerResult result) {
+    CompletableFuture<Void> future = new CompletableFuture<>();
+
+    if (mIsCleanedUp.get()) {
+      future.completeExceptionally(new IllegalStateException("Renderer is cleaned up."));
+      return future;
+    }
+    if (!mIsInitialized.get()) {
+      future.completeExceptionally(new IllegalStateException("Renderer not initialized."));
+      return future;
+    }
+    if (mRenderExecutor == null || mRenderExecutor.isShutdown()) {
+      future.completeExceptionally(new IllegalStateException("Render executor not available."));
+      return future;
+    }
+    if (result == null) {
+      future.completeExceptionally(new IllegalArgumentException("FaceLandmarkerResult cannot be null."));
+      return future;
+    }
+
+    // 更安全地检查 Optional<List<List<Category>>>，避免潜在异常
+    java.util.Optional<java.util.List<java.util.List<Category>>> blendshapesOptional = result.faceBlendshapes();
+    if (!blendshapesOptional.isPresent() || blendshapesOptional.get().isEmpty() || blendshapesOptional.get().get(0).isEmpty()) {
+      Log.i(TAG, "applyLandmarkResult: No blendshapes found in the result or Optional is empty.");
+      future.complete(null);
+      return future;
+    }
+
+    // 提取 blendshape 到 Map<String, Float>
+    List<Category> blendshapes = blendshapesOptional.get().get(0);
+    Map<String, Float> blendshapeMap = new HashMap<>();
+    for (Category blendshape : blendshapes) {
+      blendshapeMap.put(blendshape.categoryName(), blendshape.score());
+    }
+
+    Log.d(TAG, "Submitting applyLandmarkResult task with " + blendshapeMap.size() + " blendshapes.");
+    mRenderExecutor.submit(() -> {
+      try {
+        setMorphWeightsInternal(blendshapeMap);
+        future.complete(null);
+      } catch (Exception e) {
+        Log.e(TAG, "Exception during setMorphWeightsInternal execution.", e);
+        future.completeExceptionally(e);
+      }
+    });
+
+    return future;
   }
 
   /**
@@ -348,7 +426,9 @@ public class HeadlessRenderer {
           mCurrentAsset = null;
           mAssetEntities = null;
         }
-
+        // 清空 morph target 信息
+        mMorphTargetInfoMap.clear();
+        Log.d(TAG, "Cleared morph target info map for new model.");
 
         // --- Read asset into ByteBuffer ---
         AssetManager assetManager = context.getAssets();
@@ -393,11 +473,15 @@ public class HeadlessRenderer {
         newAsset.releaseSourceData(); // Release original glTF buffer data after loading
         Log.i(TAG, "Resources loaded for asset: " + assetPath);
 
-
         // --- Add to Scene ---
         mAssetEntities = newAsset.getEntities();
         mScene.addEntities(mAssetEntities);
         Log.i(TAG, "Added " + mAssetEntities.length + " entities to the scene.");
+
+        // ***** 新增：准备 Morph Target 信息 *****
+        prepareMorphTargetInfoInternal();
+        // *************************************
+
 
         // ***** MODIFICATION START: Record Entity Names and Transforms *****
         // 在加载新模型前，清除旧模型的变换信息
@@ -994,6 +1078,13 @@ public class HeadlessRenderer {
   private void cleanupFilamentResourcesInternal() {
     Log.i(TAG, "Executing cleanupFilamentResourcesInternal on thread: " + Thread.currentThread().getName());
 
+    // ***** 新增：清空 Morph Target Map *****
+    if (mMorphTargetInfoMap != null) {
+      mMorphTargetInfoMap.clear();
+      Log.d(TAG, "Cleared morph target info map during cleanup.");
+    }
+    // ***************************************
+
     // ***** 新增：清空实体变换 Map *****
     if (mEntityInitialTransforms != null) {
       mEntityInitialTransforms.clear();
@@ -1116,4 +1207,103 @@ public class HeadlessRenderer {
       super.finalize();
     }
   }
+
+  /**
+   * 扫描当前 asset 的 morph target 并填充 mMorphTargetInfoMap。必须在渲染线程调用。
+   */
+  private void prepareMorphTargetInfoInternal() {
+    if (mEngine == null || !mEngine.isValid() || mCurrentAsset == null || mAssetEntities == null) {
+      Log.w(TAG, "prepareMorphTargetInfoInternal: Invalid state (engine, asset, or entities null/invalid).");
+      return;
+    }
+
+    Log.i(TAG, "--- Preparing Morph Target Information ---");
+    RenderableManager rm = mEngine.getRenderableManager();
+    int totalMorphTargetsFound = 0;
+
+    for (int entityId : mAssetEntities) {
+      if (!rm.hasComponent(entityId)) {
+        continue;
+      }
+      var instance = rm.getInstance(entityId);
+      int numMorphTargets = rm.getMorphTargetCount(instance);
+
+      if (numMorphTargets > 0) {
+        Log.d(TAG, "Entity ID " + entityId + " has " + numMorphTargets + " morph targets.");
+        for (int j = 0; j < numMorphTargets; j++) {
+          String morphName = mCurrentAsset.getMorphTargetNameAt(entityId, j);
+          if (morphName != null && !morphName.isEmpty()) {
+            MorphInfo info = new MorphInfo(entityId, morphName, j, numMorphTargets);
+            mMorphTargetInfoMap.computeIfAbsent(morphName, k -> new ArrayList<>()).add(info);
+            Log.d(TAG, "  Added morph info: Name='" + morphName + "', Entity=" + entityId + ", Index=" + j);
+            totalMorphTargetsFound++;
+          } else {
+            Log.w(TAG, "  Warning: Unnamed morph target at index " + j + " on entity " + entityId);
+          }
+        }
+      }
+    }
+
+    Log.i(TAG, "--- Finished Preparing Morph Targets ---");
+    Log.i(TAG, "Found " + totalMorphTargetsFound + " named morph targets across " + mMorphTargetInfoMap.size() + " unique names.");
+  }
+
+  /**
+   * 设置 morph target 权重。必须在渲染线程调用。
+   *
+   * @param weights morph target 名称到权重的映射
+   */
+  private void setMorphWeightsInternal(@NonNull Map<String, Float> weights) {
+    if (mEngine == null || !mEngine.isValid() || mCurrentAsset == null) {
+      Log.e(TAG, "setMorphWeightsInternal: Invalid state (engine or asset null/invalid).");
+      return;
+    }
+    if (mMorphTargetInfoMap.isEmpty()) {
+      return;
+    }
+
+    RenderableManager rm = mEngine.getRenderableManager();
+    Map<Integer, float[]> entityWeightsMap = new HashMap<>();
+
+    for (Map.Entry<String, List<MorphInfo>> entry : mMorphTargetInfoMap.entrySet()) {
+      String morphName = entry.getKey();
+      List<MorphInfo> infos = entry.getValue();
+      float desiredWeight = weights.getOrDefault(morphName, 0.0f);
+
+      for (MorphInfo info : infos) {
+        float[] weightsArray = entityWeightsMap.computeIfAbsent(info.entityId, k -> new float[info.totalMorphTargetsForEntity]);
+        if (info.morphTargetIndex < weightsArray.length) {
+          weightsArray[info.morphTargetIndex] = desiredWeight;
+        } else {
+          Log.e(TAG, "  Error: Morph index " + info.morphTargetIndex + " out of bounds for entity " + info.entityId + " (size " + weightsArray.length + ")");
+        }
+      }
+    }
+
+    for (String inputName : weights.keySet()) {
+      if (!mMorphTargetInfoMap.containsKey(inputName)) {
+        if (!inputName.equals("_neutral")) {
+          Log.w(TAG, "Input weight name '" + inputName + "' not found in prepared morph targets.");
+        }
+      }
+    }
+
+    if (!entityWeightsMap.isEmpty()) {
+      Log.d(TAG, "Applying morph weights to " + entityWeightsMap.size() + " entities.");
+      for (Map.Entry<Integer, float[]> entityEntry : entityWeightsMap.entrySet()) {
+        int entityId = entityEntry.getKey();
+        float[] finalWeights = entityEntry.getValue();
+
+        if (rm.hasComponent(entityId)) {
+          var instance = rm.getInstance(entityId);
+          rm.setMorphWeights(instance, finalWeights);
+        } else {
+          Log.w(TAG, "Entity " + entityId + " no longer has renderable component when applying weights?");
+        }
+      }
+    } else {
+      Log.d(TAG, "No entities needed morph weight updates.");
+    }
+  }
+
 }

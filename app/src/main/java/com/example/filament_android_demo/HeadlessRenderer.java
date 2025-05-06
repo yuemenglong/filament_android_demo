@@ -42,6 +42,7 @@ import com.google.android.filament.gltfio.UbershaderProvider;
 
 import com.google.android.filament.utils.Float3;
 import com.google.android.filament.utils.Utils;
+import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarkerResult;
 
 
 import java.io.BufferedInputStream;
@@ -71,6 +72,7 @@ public class HeadlessRenderer {
   private volatile Context mApplicationContext;
 
   private static final String TAG = "HeadlessFilament";
+  public static final String headMeshName = "Wolf3D_Head";
 
   // --- Configuration ---
   private static final int IMAGE_WIDTH = 600;
@@ -291,6 +293,9 @@ public class HeadlessRenderer {
     // 移除 finally 块（原本为空）
   }
 
+  public void applyLandmarkResult(FaceLandmarkerResult result) {
+    /*TODO 应用result中的blendshapes到headMeshName对应的*/
+  }
 
   /**
    * Loads a glTF/GLB model from the app's assets folder into the scene.

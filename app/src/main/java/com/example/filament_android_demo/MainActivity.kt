@@ -64,6 +64,9 @@ class MainActivity : ComponentActivity(), FaceLandmarkerHelper.LandmarkerListene
   private val _landmarkResult = mutableStateOf<FaceLandmarkerResult?>(null)
   val landmarkResult: State<FaceLandmarkerResult?> = _landmarkResult
 
+  // State for overlay switch
+  private val _overlayEnabled = mutableStateOf(false)
+
   private val _imageWidth = mutableStateOf(1)
   val imageWidth: State<Int> = _imageWidth
 
@@ -114,7 +117,8 @@ class MainActivity : ComponentActivity(), FaceLandmarkerHelper.LandmarkerListene
             onCheckCameraPermission = { checkCameraPermission() },
             landmarkResult = landmarkResult.value,
             imageWidth = imageWidth.value,
-            imageHeight = imageHeight.value
+            imageHeight = imageHeight.value,
+            overlayEnabled = _overlayEnabled // Pass the state
           )
         }
       }
@@ -276,7 +280,8 @@ fun MainScreen(
   onCheckCameraPermission: () -> Unit,
   landmarkResult: FaceLandmarkerResult?,
   imageWidth: Int,
-  imageHeight: Int
+  imageHeight: Int,
+  overlayEnabled: State<Boolean> // Receive state
 ) {
   val context = LocalContext.current
   var showDialog by remember { mutableStateOf(false) }
@@ -289,6 +294,58 @@ fun MainScreen(
         Manifest.permission.CAMERA
       ) == PackageManager.PERMISSION_GRANTED
     )
+  }
+  val currentOverlayEnabled by overlayEnabled
+  var overlayBitmap by remember { mutableStateOf<Bitmap?>(null) }
+  var isOverlayLoading by remember { mutableStateOf(false) }
+
+  // LaunchedEffect for real-time overlay rendering
+  LaunchedEffect(landmarkResult, currentOverlayEnabled, isRendererReady) {
+    if (currentOverlayEnabled && isRendererReady && renderer.isRenderExecutorAvailable()) {
+      if (landmarkResult != null) {
+        if (isOverlayLoading) return@LaunchedEffect // Already processing a frame
+        isOverlayLoading = true
+
+        Log.d("MainScreen", "Overlay: Applying landmarks and rendering for timestamp ${landmarkResult.timestampMs()}.")
+        renderer.applyLandmarkResult(landmarkResult)
+          .thenCompose {
+            renderer.render()
+          }
+          .handle { bitmap, throwable ->
+            (context as? ComponentActivity)?.runOnUiThread {
+              isOverlayLoading = false
+              if (throwable != null) {
+                val cause = if (throwable is CompletionException) throwable.cause ?: throwable else throwable
+                Log.e("MainScreen", "Overlay: Rendering failed", cause)
+                overlayBitmap = null // Clear on error
+              } else if (bitmap != null) {
+                Log.d("MainScreen", "Overlay: Rendering successful.")
+                overlayBitmap = bitmap
+              } else {
+                Log.e("MainScreen", "Overlay: Rendering completed but bitmap was null.")
+                overlayBitmap = null // Clear if null
+              }
+            }
+          }
+      } else {
+        // No face detected or result is null, clear the overlay
+        if (overlayBitmap != null) {
+          overlayBitmap = null
+          Log.d("MainScreen", "Overlay: No landmark result, clearing overlay bitmap.")
+        }
+        if (isOverlayLoading) {
+          isOverlayLoading = false
+        }
+      }
+    } else if (!currentOverlayEnabled) {
+      if (overlayBitmap != null) {
+        overlayBitmap = null
+        Log.d("MainScreen", "Overlay: Disabled, clearing overlay bitmap.")
+      }
+      if (isOverlayLoading) { // Reset if disabled while loading
+        isOverlayLoading = false
+      }
+    }
   }
 
   LaunchedEffect(Unit) {
@@ -309,7 +366,9 @@ fun MainScreen(
           modifier = Modifier.fillMaxSize(),
           landmarkResult = landmarkResult,
           imageWidth = imageWidth,
-          imageHeight = imageHeight
+          imageHeight = imageHeight,
+          overlayBitmap = overlayBitmap, // Pass bitmap
+          overlayEnabled = currentOverlayEnabled  // Pass boolean state
         )
       } else {
         Column(
@@ -327,6 +386,23 @@ fun MainScreen(
     }
 
     Spacer(modifier = Modifier.height(16.dp))
+
+    Row(
+      modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+      Text("Enable 3D Model Overlay")
+      Switch(
+        checked = currentOverlayEnabled,
+        onCheckedChange = {
+          (overlayEnabled as? MutableState<Boolean>)?.value = it
+          if (!it) { // If turning off, clear the overlay bitmap immediately
+            overlayBitmap = null
+          }
+        }
+      )
+    }
 
     Column(
       modifier = Modifier.fillMaxWidth(),
@@ -428,7 +504,9 @@ fun CameraPreviewWithLandmarks(
   modifier: Modifier = Modifier,
   landmarkResult: FaceLandmarkerResult?,
   imageWidth: Int,
-  imageHeight: Int
+  imageHeight: Int,
+  overlayBitmap: Bitmap?,
+  overlayEnabled: Boolean
 ) {
   val lifecycleOwner = LocalLifecycleOwner.current
   val context = LocalContext.current
@@ -514,20 +592,58 @@ fun CameraPreviewWithLandmarks(
           }
         }
       }
-    }
-  }
-}
+      // Draw Overlay Bitmap
+      if (overlayEnabled && overlayBitmap != null && landmarkResult != null && landmarkResult.faceLandmarks().isNotEmpty()) {
+        val allLandmarks = landmarkResult.faceLandmarks().firstOrNull() // Assuming one face
 
-@Composable
-fun MainScreenPreview() {
-  Filament_android_demoTheme {
-    MainScreen(
-      renderer = HeadlessRenderer(),
-      isRendererReady = true,
-      onCheckCameraPermission = {},
-      landmarkResult = null,
-      imageWidth = 1,
-      imageHeight = 1
-    )
+        if (allLandmarks != null && allLandmarks.isNotEmpty()) {
+          var minXNorm = Float.MAX_VALUE
+          var minYNorm = Float.MAX_VALUE
+          var maxXNorm = Float.MIN_VALUE
+          var maxYNorm = Float.MIN_VALUE
+
+          allLandmarks.forEach { landmark ->
+            minXNorm = minOf(minXNorm, landmark.x())
+            minYNorm = minOf(minYNorm, landmark.y())
+            maxXNorm = maxOf(maxXNorm, landmark.x())
+            maxYNorm = maxOf(maxYNorm, landmark.y())
+          }
+
+          if (minXNorm < maxXNorm && minYNorm < maxYNorm) {
+            val scaledImageWidth = imageWidth * scaleFactor
+            val scaledImageHeight = imageHeight * scaleFactor
+            val canvasOffsetX = (size.width - scaledImageWidth) / 2f
+            val canvasOffsetY = (size.height - scaledImageHeight) / 2f
+
+            val faceRectLeft = minXNorm * scaledImageWidth + canvasOffsetX
+            val faceRectTop = minYNorm * scaledImageHeight + canvasOffsetY
+            val faceRectRight = maxXNorm * scaledImageWidth + canvasOffsetX
+            val faceRectBottom = maxYNorm * scaledImageHeight + canvasOffsetY
+
+            val faceWidthOnCanvas = faceRectRight - faceRectLeft
+            val faceHeightOnCanvas = faceRectBottom - faceRectTop
+            val faceCenterX = faceRectLeft + faceWidthOnCanvas / 2f
+            val faceCenterY = faceRectTop + faceHeightOnCanvas / 2f
+
+            // Scale the overlay to be, e.g., 1.8x the detected face width, maintaining aspect ratio
+            val overlayTargetWidth = faceWidthOnCanvas * 1.8f // Adjust this multiplier as needed
+            val overlayAspectRatio = overlayBitmap.width.toFloat() / overlayBitmap.height.toFloat()
+            val overlayTargetHeight = overlayTargetWidth / overlayAspectRatio
+
+            val destLeft = (faceCenterX - overlayTargetWidth / 2f).toInt()
+            val destTop = (faceCenterY - overlayTargetHeight / 2f).toInt() // Adjust anchor if needed
+
+            val imageBitmap = overlayBitmap.asImageBitmap()
+            drawImage(
+              image = imageBitmap,
+              srcOffset = androidx.compose.ui.unit.IntOffset.Zero,
+              srcSize = androidx.compose.ui.unit.IntSize(overlayBitmap.width, overlayBitmap.height),
+              dstOffset = androidx.compose.ui.unit.IntOffset(destLeft, destTop),
+              dstSize = androidx.compose.ui.unit.IntSize(overlayTargetWidth.toInt(), overlayTargetHeight.toInt())
+            )
+          }
+        }
+      }
+    }
   }
 }

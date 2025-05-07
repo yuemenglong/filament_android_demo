@@ -73,6 +73,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public class HeadlessRenderer {
 
+  // Add this method inside the HeadlessRenderer class
+  public boolean isRenderExecutorAvailable() {
+    return mRenderExecutor != null && !mRenderExecutor.isShutdown();
+  }
+
   /**
    * 存储单个实体上的 morph target 信息。
    */
@@ -252,6 +257,16 @@ public class HeadlessRenderer {
       .thenAccept(modelLoaded -> {
         if (modelLoaded) {
           Log.i(TAG, "Initial model 'man1.glb' loaded successfully (async).");
+          // Add initial viewport adjustment for overlay
+          Log.i(TAG, "Scheduling initial viewport adjustment after model load for overlay purposes.");
+          // Use headName or headMeshName if a specific part should be centered.
+          // Adjust scaleFactor (e.g., 4.0f) as needed for a good default overlay size.
+          updateViewPortAsync(headName, 4.0f)
+            .thenRun(() -> Log.i(TAG, "Initial viewport adjustment completed on render thread."))
+            .exceptionally(ex -> {
+              Log.e(TAG, "Initial viewport adjustment failed on render thread.", ex);
+              return null;
+            });
         } else {
           Log.e(TAG, "Initial model 'man1.glb' failed to load (async).");
         }

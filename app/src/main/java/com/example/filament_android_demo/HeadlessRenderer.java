@@ -115,7 +115,7 @@ public class HeadlessRenderer {
   // --- Configuration ---
   private static final int IMAGE_WIDTH = 600;
   private static final int IMAGE_HEIGHT = 800;
-  private static final float[] SKY_COLOR = {0.2f, 0.4f, 0.8f, 1.0f};
+  // private static final float[] SKY_COLOR = {0.2f, 0.4f, 0.8f, 1.0f};
   private static final long RENDER_TIMEOUT_SECONDS = 15;
   private static final long INIT_TIMEOUT_SECONDS = 20;
   private static final long SHUTDOWN_TIMEOUT_SECONDS = 20;
@@ -192,6 +192,9 @@ public class HeadlessRenderer {
     mView.setScene(mScene);
     mView.setCamera(mCamera);
     mView.setViewport(new Viewport(0, 0, IMAGE_WIDTH, IMAGE_HEIGHT));
+    // 设置透明背景
+//    mView.setClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    mView.setBlendMode(View.BlendMode.TRANSLUCENT);
 
     // Default camera setup (adjust as needed)
     mCamera.setProjection(60.0, (double) IMAGE_WIDTH / IMAGE_HEIGHT, 0.1, 1000.0, Camera.Fov.VERTICAL);
@@ -200,11 +203,12 @@ public class HeadlessRenderer {
       0.0, 0.0, 0.0, // Target position
       0.0, 1.0, 0.0); // Up vector
 
-    mSkybox = new Skybox.Builder()
-      .color(SKY_COLOR[0], SKY_COLOR[1], SKY_COLOR[2], SKY_COLOR[3])
-      .build(mEngine);
-    mScene.setSkybox(mSkybox);
-    Log.i(TAG, "Skybox created.");
+    // 移除天空盒相关代码，确保背景透明
+    // mSkybox = new Skybox.Builder()
+    //   .color(SKY_COLOR[0], SKY_COLOR[1], SKY_COLOR[2], SKY_COLOR[3])
+    //   .build(mEngine);
+    // mScene.setSkybox(mSkybox);
+    // Log.i(TAG, "Skybox created.");
 
     // ***** 添加方向光源 START *****
     try {
@@ -927,6 +931,13 @@ public class HeadlessRenderer {
         if (mRenderer == null || mSwapChain == null || mView == null || mEngine == null || !mEngine.isValid()) {
           throw new IllegalStateException("Filament resources are not valid at the start of render task.");
         }
+
+        // 设置透明清除选项，确保背景为透明
+        com.google.android.filament.Renderer.ClearOptions clearOptions = new com.google.android.filament.Renderer.ClearOptions();
+        clearOptions.clearColor = new float[]{0.0f, 0.0f, 0.0f, 0.0f};
+        clearOptions.clear = true;
+        clearOptions.discard = false;
+        mRenderer.setClearOptions(clearOptions);
 
         if (mRenderer.beginFrame(mSwapChain, frameTimeNanos)) {
           mRenderer.render(mView);

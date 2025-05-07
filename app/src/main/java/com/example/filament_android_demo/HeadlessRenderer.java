@@ -98,6 +98,8 @@ public class HeadlessRenderer {
   private volatile Context mApplicationContext;
 
   private static final String TAG = "HeadlessFilament";
+  // Positive value shifts model visually downwards. Tune as needed.
+  private static final float VERTICAL_CENTERING_ADJUSTMENT_FACTOR = 0.2f;
   public static final String headMeshName = "Wolf3D_Head";
   public static final String headName = "Head";
 
@@ -985,6 +987,13 @@ public class HeadlessRenderer {
     float finalScale = baseScale * scaleFactor;
     float adjustedCenterZ = center[2] + (zOffset / finalScale);
 
+    // Calculate the vertical offset based on the AABB height and the adjustment factor
+    float aabbHeight = halfExtent[1] * 2.0f;
+    float verticalOffsetInAABBSpace = aabbHeight * VERTICAL_CENTERING_ADJUSTMENT_FACTOR;
+
+    // The new target Y-coordinate in the AABB's local space to be centered.
+    float targetYToCenter = center[1] + verticalOffsetInAABBSpace;
+
     float[] scaleMatrix = new float[16];
     float[] translationMatrix = new float[16];
     float[] finalTransform = new float[16];
@@ -993,16 +1002,19 @@ public class HeadlessRenderer {
     Matrix.scaleM(scaleMatrix, 0, finalScale, finalScale, finalScale);
 
     Matrix.setIdentityM(translationMatrix, 0);
-    Matrix.translateM(translationMatrix, 0, -center[0], -center[1], -adjustedCenterZ);
+    // Use the new targetYToCenter for the translation
+    Matrix.translateM(translationMatrix, 0, -center[0], -targetYToCenter, -adjustedCenterZ);
 
     // 先平移后缩放: final = scale * translation
     Matrix.multiplyMM(finalTransform, 0, scaleMatrix, 0, translationMatrix, 0);
 
     Log.d(TAG, "fitIntoUnitCubeInternal: Center=" + Arrays.toString(center) +
-      ", HalfExtent=" + Arrays.toString(halfExtent) +
-      ", MaxExtent=" + maxExtent +
-      ", FinalScale=" + finalScale +
-      ", AdjustedCenterZ=" + adjustedCenterZ);
+            ", HalfExtent=" + Arrays.toString(halfExtent) +
+            ", MaxExtent=" + maxExtent +
+            ", FinalScale=" + finalScale +
+            ", AdjustedCenterZ=" + adjustedCenterZ +
+            ", TargetYToCenter=" + targetYToCenter +
+            ", VerticalOffsetInAABBSpace=" + verticalOffsetInAABBSpace);
     return finalTransform;
   }
 

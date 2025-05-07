@@ -432,9 +432,9 @@ fun CameraPreviewWithLandmarks(
 ) {
   val lifecycleOwner = LocalLifecycleOwner.current
   val context = LocalContext.current
-  val cameraProviderFuture = remember { ProcessCameraProvider.getInstance(context) }
-  var previewView: PreviewView? by remember { mutableStateOf(null) }
+  val mainActivity = context as? MainActivity
 
+  var localPreviewView: PreviewView? by remember { mutableStateOf(null) }
   var overlayWidth by remember { mutableStateOf(1) }
   var overlayHeight by remember { mutableStateOf(1) }
   var scaleFactor by remember { mutableStateOf(1f) }
@@ -455,18 +455,22 @@ fun CameraPreviewWithLandmarks(
           )
           scaleType = PreviewView.ScaleType.FILL_START
           implementationMode = PreviewView.ImplementationMode.COMPATIBLE
-          previewView = this
-          val cameraProvider = cameraProviderFuture.get()
-          val mainActivity = ctx as? MainActivity
-          mainActivity?.preview?.setSurfaceProvider(this.surfaceProvider)
+          localPreviewView = this
         }
       },
-      modifier = Modifier.fillMaxSize(),
-      update = { view ->
-        val mainActivity = view.context as? MainActivity
-        mainActivity?.preview?.setSurfaceProvider(view.surfaceProvider)
-      }
+      modifier = Modifier.fillMaxSize()
     )
+
+    LaunchedEffect(mainActivity, localPreviewView, mainActivity?.preview) {
+      val cameraPreviewUseCase = mainActivity?.preview
+      val pv = localPreviewView
+      if (cameraPreviewUseCase != null && pv != null) {
+        cameraPreviewUseCase.setSurfaceProvider(pv.surfaceProvider)
+        Log.d("CameraPreviewWithLandmarks", "SurfaceProvider SET successfully.")
+      } else {
+        Log.d("CameraPreviewWithLandmarks", "SurfaceProvider NOT set: mainActivity.preview is ${mainActivity?.preview}, localPreviewView is $pv")
+      }
+    }
 
     Canvas(modifier = Modifier.fillMaxSize()) {
       if (scaleFactor <= 0f || imageWidth <= 0 || imageHeight <= 0) return@Canvas

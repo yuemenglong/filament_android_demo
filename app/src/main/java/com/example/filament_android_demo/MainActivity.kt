@@ -453,7 +453,7 @@ fun CameraPreviewWithLandmarks(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT
           )
-          scaleType = PreviewView.ScaleType.FILL_START
+          scaleType = PreviewView.ScaleType.FILL_CENTER
           implementationMode = PreviewView.ImplementationMode.COMPATIBLE
           localPreviewView = this
         }

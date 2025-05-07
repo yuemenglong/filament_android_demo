@@ -103,6 +103,15 @@ public class HeadlessRenderer {
   public static final String headMeshName = "Wolf3D_Head";
   public static final String headName = "Head";
 
+  // --- 只显示头部相关实体的名称列表 ---
+  private static final List<String> ENTITY_NAMES_TO_KEEP_VISIBLE = Arrays.asList(
+    "Wolf3D_Head",
+    "Wolf3D_Teeth",
+    "EyeLeft",
+    "EyeRight",
+    "Wolf3D_Hair"
+//      "Wolf3D_Glasses"
+  );
   // --- Configuration ---
   private static final int IMAGE_WIDTH = 600;
   private static final int IMAGE_HEIGHT = 800;
@@ -369,16 +378,16 @@ public class HeadlessRenderer {
     float[] faceTransformMatrix = null;
     java.util.Optional<java.util.List<float[]>> matrixesOptional = result.facialTransformationMatrixes();
     if (matrixesOptional.isPresent() && !matrixesOptional.get().isEmpty()) {
-        faceTransformMatrix = matrixesOptional.get().get(0); // Get the first face's matrix
-        if(faceTransformMatrix.length != 16) {
-            Log.e(TAG, "applyLandmarkResult: Facial transformation matrix has incorrect size: " + faceTransformMatrix.length);
-            faceTransformMatrix = null; // Invalidate if incorrect size
-        } else {
-             Log.d(TAG, "Extracted facial transformation matrix.");
-        }
+      faceTransformMatrix = matrixesOptional.get().get(0); // Get the first face's matrix
+      if (faceTransformMatrix.length != 16) {
+        Log.e(TAG, "applyLandmarkResult: Facial transformation matrix has incorrect size: " + faceTransformMatrix.length);
+        faceTransformMatrix = null; // Invalidate if incorrect size
+      } else {
+        Log.d(TAG, "Extracted facial transformation matrix.");
+      }
     } else {
-        Log.i(TAG, "applyLandmarkResult: No facial transformation matrix found in the result.");
-        // Continue without rotation
+      Log.i(TAG, "applyLandmarkResult: No facial transformation matrix found in the result.");
+      // Continue without rotation
     }
 
     // --- Submit Task to Render Thread ---
@@ -393,10 +402,10 @@ public class HeadlessRenderer {
 
         // 1. Apply Blendshapes
         if (!finalBlendshapeMap.isEmpty()) {
-           Log.d(TAG, "Render task: Applying blendshapes...");
-           setMorphWeightsInternal(finalBlendshapeMap);
+          Log.d(TAG, "Render task: Applying blendshapes...");
+          setMorphWeightsInternal(finalBlendshapeMap);
         } else {
-           Log.d(TAG, "Render task: No blendshapes to apply.");
+          Log.d(TAG, "Render task: No blendshapes to apply.");
         }
 
         // 2. Apply Rotation (if matrix exists)
@@ -409,19 +418,19 @@ public class HeadlessRenderer {
 
           // Apply rotation to the Head entity
           rotationApplied = rotateInternal(headName, -eulerAngles[0], -eulerAngles[1], eulerAngles[2]);
-          if(!rotationApplied) {
-              Log.e(TAG, "Render task: Failed to apply rotation.");
+          if (!rotationApplied) {
+            Log.e(TAG, "Render task: Failed to apply rotation.");
           }
         } else {
-             Log.d(TAG, "Render task: No rotation matrix to apply.");
+          Log.d(TAG, "Render task: No rotation matrix to apply.");
         }
 
         // 3. Update Bone Matrices (if rotation was applied)
         if (rotationApplied) {
-            Log.d(TAG, "Render task: Updating bone matrices due to rotation...");
-            updateBoneMatricesInternal();
+          Log.d(TAG, "Render task: Updating bone matrices due to rotation...");
+          updateBoneMatricesInternal();
         } else {
-            Log.d(TAG, "Render task: Skipping bone update as no rotation was applied.");
+          Log.d(TAG, "Render task: Skipping bone update as no rotation was applied.");
         }
 
         long endTime = System.nanoTime();
@@ -495,23 +504,23 @@ public class HeadlessRenderer {
    */
   private void updateBoneMatricesInternal() {
     if (mEngine == null || !mEngine.isValid() || mCurrentAsset == null) {
-        Log.w(TAG, "updateBoneMatricesInternal: Invalid state.");
-        return;
+      Log.w(TAG, "updateBoneMatricesInternal: Invalid state.");
+      return;
     }
     // NOTE: FilamentAsset might have multiple instances in the future,
     // but typically there's one for a single loaded glTF.
     // Get the default instance (index 0).
     com.google.android.filament.gltfio.FilamentInstance filamentInstance = mCurrentAsset.getInstance();
     if (filamentInstance != null) {
-        com.google.android.filament.gltfio.Animator animator = filamentInstance.getAnimator();
-        if (animator != null) {
-            Log.d(TAG, "Updating bone matrices...");
-            animator.updateBoneMatrices();
-        } else {
-            Log.d(TAG, "updateBoneMatricesInternal: No animator found on the instance.");
-        }
+      com.google.android.filament.gltfio.Animator animator = filamentInstance.getAnimator();
+      if (animator != null) {
+        Log.d(TAG, "Updating bone matrices...");
+        animator.updateBoneMatrices();
+      } else {
+        Log.d(TAG, "updateBoneMatricesInternal: No animator found on the instance.");
+      }
     } else {
-       Log.w(TAG, "updateBoneMatricesInternal: No FilamentInstance found on the asset.");
+      Log.w(TAG, "updateBoneMatricesInternal: No FilamentInstance found on the asset.");
     }
   }
 
@@ -526,59 +535,59 @@ public class HeadlessRenderer {
    * @return true if successful, false otherwise
    */
   private boolean rotateInternal(@NonNull String entityName, float x, float y, float z) {
-      if (mEngine == null || !mEngine.isValid()) {
-          Log.e(TAG, "rotateInternal: Engine is not valid.");
-          return false;
-      }
+    if (mEngine == null || !mEngine.isValid()) {
+      Log.e(TAG, "rotateInternal: Engine is not valid.");
+      return false;
+    }
 
-      // 1. 查找初始变换
-      float[] initialTransform = mEntityInitialTransforms.get(entityName);
-      if (initialTransform == null) {
-          Log.e(TAG, "rotateInternal failed: Initial transform for entity '" + entityName + "' not cached.");
-          return false;
-      }
+    // 1. 查找初始变换
+    float[] initialTransform = mEntityInitialTransforms.get(entityName);
+    if (initialTransform == null) {
+      Log.e(TAG, "rotateInternal failed: Initial transform for entity '" + entityName + "' not cached.");
+      return false;
+    }
 
-      // 2. 查找实体ID
-      int entityId = findEntityByNameInternal(entityName);
-      if (entityId == Entity.NULL) { // Check against Entity.NULL which is 0
-          Log.e(TAG, "rotateInternal failed: Entity '" + entityName + "' not found (despite having cached transform).");
-          return false;
-      }
+    // 2. 查找实体ID
+    int entityId = findEntityByNameInternal(entityName);
+    if (entityId == Entity.NULL) { // Check against Entity.NULL which is 0
+      Log.e(TAG, "rotateInternal failed: Entity '" + entityName + "' not found (despite having cached transform).");
+      return false;
+    }
 
-      TransformManager tm = mEngine.getTransformManager();
-      if (!tm.hasComponent(entityId)) {
-          Log.e(TAG, "rotateInternal failed: Entity '" + entityName + "' has no Transform component.");
-          return false;
-      }
-      int instance = tm.getInstance(entityId);
+    TransformManager tm = mEngine.getTransformManager();
+    if (!tm.hasComponent(entityId)) {
+      Log.e(TAG, "rotateInternal failed: Entity '" + entityName + "' has no Transform component.");
+      return false;
+    }
+    int instance = tm.getInstance(entityId);
 
-      // 3. 构造旋转矩阵 (Z * Y * X order)
-      float[] rotationX = new float[16];
-      float[] rotationY = new float[16];
-      float[] rotationZ = new float[16];
-      float[] temp = new float[16];
-      float[] desiredRotation = new float[16];
+    // 3. 构造旋转矩阵 (Z * Y * X order)
+    float[] rotationX = new float[16];
+    float[] rotationY = new float[16];
+    float[] rotationZ = new float[16];
+    float[] temp = new float[16];
+    float[] desiredRotation = new float[16];
 
-      Matrix.setIdentityM(rotationX, 0);
-      Matrix.rotateM(rotationX, 0, (float) Math.toDegrees(x), 1, 0, 0); // rotateM takes degrees
-      Matrix.setIdentityM(rotationY, 0);
-      Matrix.rotateM(rotationY, 0, (float) Math.toDegrees(y), 0, 1, 0);
-      Matrix.setIdentityM(rotationZ, 0);
-      Matrix.rotateM(rotationZ, 0, (float) Math.toDegrees(z), 0, 0, 1);
+    Matrix.setIdentityM(rotationX, 0);
+    Matrix.rotateM(rotationX, 0, (float) Math.toDegrees(x), 1, 0, 0); // rotateM takes degrees
+    Matrix.setIdentityM(rotationY, 0);
+    Matrix.rotateM(rotationY, 0, (float) Math.toDegrees(y), 0, 1, 0);
+    Matrix.setIdentityM(rotationZ, 0);
+    Matrix.rotateM(rotationZ, 0, (float) Math.toDegrees(z), 0, 0, 1);
 
-      // desiredRotation = rotationZ * rotationY * rotationX
-      Matrix.multiplyMM(temp, 0, rotationY, 0, rotationX, 0);
-      Matrix.multiplyMM(desiredRotation, 0, rotationZ, 0, temp, 0);
+    // desiredRotation = rotationZ * rotationY * rotationX
+    Matrix.multiplyMM(temp, 0, rotationY, 0, rotationX, 0);
+    Matrix.multiplyMM(desiredRotation, 0, rotationZ, 0, temp, 0);
 
-      // 4. newLocalTransform = initialTransform * desiredRotation
-      float[] newLocalTransform = new float[16];
-      Matrix.multiplyMM(newLocalTransform, 0, initialTransform, 0, desiredRotation, 0);
+    // 4. newLocalTransform = initialTransform * desiredRotation
+    float[] newLocalTransform = new float[16];
+    Matrix.multiplyMM(newLocalTransform, 0, initialTransform, 0, desiredRotation, 0);
 
-      // 5. 应用变换
-      tm.setTransform(instance, newLocalTransform);
+    // 5. 应用变换
+    tm.setTransform(instance, newLocalTransform);
 
-      Log.d(TAG, "Applied absolute rotation to entity '" + entityName + "' (x=" + x + ", y=" + y + ", z=" + z + ").");
-      return true;
+    Log.d(TAG, "Applied absolute rotation to entity '" + entityName + "' (x=" + x + ", y=" + y + ", z=" + z + ").");
+    return true;
   }
 
   /**
@@ -683,6 +692,33 @@ public class HeadlessRenderer {
         mAssetEntities = newAsset.getEntities();
         mScene.addEntities(mAssetEntities);
         Log.i(TAG, "Added " + mAssetEntities.length + " entities to the scene.");
+
+        // ***** 新增：隐藏非头部相关的实体 START *****
+        if (mAssetEntities != null && mAssetEntities.length > 0) {
+          RenderableManager rm = mEngine.getRenderableManager();
+          List<Integer> entitiesToRemoveFromScene = new ArrayList<>();
+
+          Log.i(TAG, "--- Filtering entities for visibility ---");
+          for (int entityId : mAssetEntities) {
+            String entityName = newAsset.getName(entityId);
+
+            // 只处理有名称且是可渲染实体的部分
+            if (entityName != null && !entityName.isEmpty() && rm.hasComponent(entityId)) {
+              if (!ENTITY_NAMES_TO_KEEP_VISIBLE.contains(entityName)) {
+                Log.d(TAG, "Marking entity for hiding: '" + entityName + "' (ID: " + entityId + ")");
+                entitiesToRemoveFromScene.add(entityId);
+              } else {
+                Log.d(TAG, "Keeping entity visible: '" + entityName + "' (ID: " + entityId + ")");
+              }
+            }
+          }
+
+          if (!entitiesToRemoveFromScene.isEmpty()) {
+            mScene.removeEntities(entitiesToRemoveFromScene.stream().mapToInt(i -> i).toArray());
+            Log.i(TAG, "Hid " + entitiesToRemoveFromScene.size() + " entities by removing them from the scene.");
+          }
+        }
+        // ***** 新增：隐藏非头部相关的实体 END *****
 
         // ***** 新增：准备 Morph Target 信息 *****
         prepareMorphTargetInfoInternal();
@@ -1009,12 +1045,12 @@ public class HeadlessRenderer {
     Matrix.multiplyMM(finalTransform, 0, scaleMatrix, 0, translationMatrix, 0);
 
     Log.d(TAG, "fitIntoUnitCubeInternal: Center=" + Arrays.toString(center) +
-            ", HalfExtent=" + Arrays.toString(halfExtent) +
-            ", MaxExtent=" + maxExtent +
-            ", FinalScale=" + finalScale +
-            ", AdjustedCenterZ=" + adjustedCenterZ +
-            ", TargetYToCenter=" + targetYToCenter +
-            ", VerticalOffsetInAABBSpace=" + verticalOffsetInAABBSpace);
+      ", HalfExtent=" + Arrays.toString(halfExtent) +
+      ", MaxExtent=" + maxExtent +
+      ", FinalScale=" + finalScale +
+      ", AdjustedCenterZ=" + adjustedCenterZ +
+      ", TargetYToCenter=" + targetYToCenter +
+      ", VerticalOffsetInAABBSpace=" + verticalOffsetInAABBSpace);
     return finalTransform;
   }
 

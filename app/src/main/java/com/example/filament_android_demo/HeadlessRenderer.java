@@ -261,7 +261,7 @@ public class HeadlessRenderer {
           Log.i(TAG, "Scheduling initial viewport adjustment after model load for overlay purposes.");
           // Use headName or headMeshName if a specific part should be centered.
           // Adjust scaleFactor (e.g., 4.0f) as needed for a good default overlay size.
-          updateViewPortAsync(headName, 4.0f)
+          updateViewPortAsync(headMeshName, 5.0f)
             .thenRun(() -> Log.i(TAG, "Initial viewport adjustment completed on render thread."))
             .exceptionally(ex -> {
               Log.e(TAG, "Initial viewport adjustment failed on render thread.", ex);

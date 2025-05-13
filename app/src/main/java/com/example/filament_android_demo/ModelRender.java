@@ -478,11 +478,10 @@ public class ModelRender {
       failedFuture.completeExceptionally(new IllegalStateException("Render executor not available."));
       return failedFuture;
     }
-    // 先应用 landmark，再渲染
-    return applyLandmarkResult(result)
-      .thenComposeAsync(aVoid -> {
-        return render();
-      }, mRenderExecutor)
+    // 先更新视口，再应用 landmark，再渲染
+    return updateViewPortAsync(headMeshName, SCALE_FACTOR)
+      .thenComposeAsync(aVoid -> applyLandmarkResult(result), mRenderExecutor)
+      .thenComposeAsync(aVoid -> render(), mRenderExecutor)
       .exceptionally(ex -> {
         Log.e(TAG, "Error in applyLandmarkResultAndRender chain", ex);
         throw new RuntimeException(ex);

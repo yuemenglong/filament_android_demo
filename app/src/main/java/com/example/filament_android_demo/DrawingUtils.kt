@@ -60,3 +60,81 @@ fun DrawScope.drawFaceLandmarksToCanvas(
         }
     }
 }
+import android.graphics.Bitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+
+/**
+ * 在 Canvas 上根据人脸关键点绘制 3D 模型 overlay（Bitmap）。
+ */
+fun DrawScope.draw3DOverlayToCanvas(
+    overlayBitmap: Bitmap?,
+    landmarkResult: com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarkerResult?,
+    imageWidth: Int,
+    imageHeight: Int,
+    overlayScaleRelativeToFace: Float = 1.8f
+) {
+    if (overlayBitmap == null || landmarkResult == null || landmarkResult.faceLandmarks().isEmpty()) {
+        return
+    }
+
+    val canvasWidth = this.size.width
+    val canvasHeight = this.size.height
+
+    if (imageWidth <= 0 || imageHeight <= 0 || canvasWidth <= 0f || canvasHeight <= 0f) {
+        return
+    }
+
+    val scaleFactor = max(canvasWidth / imageWidth, canvasHeight / imageHeight)
+    val scaledImageWidth = imageWidth * scaleFactor
+    val scaledImageHeight = imageHeight * scaleFactor
+    val canvasOffsetX = (canvasWidth - scaledImageWidth) / 2f
+    val canvasOffsetY = (canvasHeight - scaledImageHeight) / 2f
+
+    val allLandmarks = landmarkResult.faceLandmarks().firstOrNull()
+    if (allLandmarks != null && allLandmarks.isNotEmpty()) {
+        var minXNorm = Float.MAX_VALUE
+        var minYNorm = Float.MAX_VALUE
+        var maxXNorm = Float.MIN_VALUE
+        var maxYNorm = Float.MIN_VALUE
+
+        allLandmarks.forEach { landmark ->
+            minXNorm = minOf(minXNorm, landmark.x())
+            minYNorm = minOf(minYNorm, landmark.y())
+            maxXNorm = maxOf(maxXNorm, landmark.x())
+            maxYNorm = maxOf(maxYNorm, landmark.y())
+        }
+
+        if (minXNorm < maxXNorm && minYNorm < maxYNorm) {
+            val faceRectLeft = minXNorm * scaledImageWidth + canvasOffsetX
+            val faceRectTop = minYNorm * scaledImageHeight + canvasOffsetY
+            val faceRectRight = maxXNorm * scaledImageWidth + canvasOffsetX
+            val faceRectBottom = maxYNorm * scaledImageHeight + canvasOffsetY
+
+            val faceWidthOnCanvas = faceRectRight - faceRectLeft
+            val faceCenterX = faceRectLeft + faceWidthOnCanvas / 2f
+            val faceCenterY = faceRectTop + (faceRectBottom - faceRectTop) / 2f
+
+            val overlayTargetWidth = faceWidthOnCanvas * overlayScaleRelativeToFace
+            val bitmapAspectRatio = if (overlayBitmap.height > 0) overlayBitmap.width.toFloat() / overlayBitmap.height.toFloat() else 1f
+            val overlayTargetHeight = overlayTargetWidth / bitmapAspectRatio
+
+            val destLeft = (faceCenterX - overlayTargetWidth / 2f).toInt()
+            val destTop = (faceCenterY - overlayTargetHeight / 2f).toInt()
+
+            val imageBitmapToDraw = overlayBitmap.asImageBitmap()
+
+            drawImage(
+                image = imageBitmapToDraw,
+                srcOffset = IntOffset.Zero,
+                srcSize = IntSize(overlayBitmap.width, overlayBitmap.height),
+                dstOffset = IntOffset(destLeft, destTop),
+                dstSize = IntSize(
+                    overlayTargetWidth.toInt(),
+                    overlayTargetHeight.toInt()
+                )
+            )
+        }
+    }
+}

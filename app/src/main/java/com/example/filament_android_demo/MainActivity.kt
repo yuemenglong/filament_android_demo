@@ -468,62 +468,13 @@ fun CameraPreviewWithLandmarks(
         imageHeight = imageHeight
       )
       // Draw Overlay Bitmap
-      if (overlayEnabled && overlayBitmap != null && landmarkResult != null && landmarkResult.faceLandmarks()
-          .isNotEmpty()
-      ) {
-        val allLandmarks = landmarkResult.faceLandmarks().firstOrNull() // Assuming one face
-
-        if (allLandmarks != null && allLandmarks.isNotEmpty()) {
-          var minXNorm = Float.MAX_VALUE
-          var minYNorm = Float.MAX_VALUE
-          var maxXNorm = Float.MIN_VALUE
-          var maxYNorm = Float.MIN_VALUE
-
-          allLandmarks.forEach { landmark ->
-            minXNorm = minOf(minXNorm, landmark.x())
-            minYNorm = minOf(minYNorm, landmark.y())
-            maxXNorm = maxOf(maxXNorm, landmark.x())
-            maxYNorm = maxOf(maxYNorm, landmark.y())
-          }
-
-          if (minXNorm < maxXNorm && minYNorm < maxYNorm) {
-            val scaledImageWidth = imageWidth * scaleFactor
-            val scaledImageHeight = imageHeight * scaleFactor
-            val canvasOffsetX = (size.width - scaledImageWidth) / 2f
-            val canvasOffsetY = (size.height - scaledImageHeight) / 2f
-
-            val faceRectLeft = minXNorm * scaledImageWidth + canvasOffsetX
-            val faceRectTop = minYNorm * scaledImageHeight + canvasOffsetY
-            val faceRectRight = maxXNorm * scaledImageWidth + canvasOffsetX
-            val faceRectBottom = maxYNorm * scaledImageHeight + canvasOffsetY
-
-            val faceWidthOnCanvas = faceRectRight - faceRectLeft
-            val faceHeightOnCanvas = faceRectBottom - faceRectTop
-            val faceCenterX = faceRectLeft + faceWidthOnCanvas / 2f
-            val faceCenterY = faceRectTop + faceHeightOnCanvas / 2f
-
-            // Scale the overlay to be, e.g., 1.8x the detected face width, maintaining aspect ratio
-            val overlayTargetWidth = faceWidthOnCanvas * 1.8f // Adjust this multiplier as needed
-            val overlayAspectRatio = overlayBitmap.width.toFloat() / overlayBitmap.height.toFloat()
-            val overlayTargetHeight = overlayTargetWidth / overlayAspectRatio
-
-            val destLeft = (faceCenterX - overlayTargetWidth / 2f).toInt()
-            val destTop =
-              (faceCenterY - overlayTargetHeight / 2f).toInt() // Adjust anchor if needed
-
-            val imageBitmap = overlayBitmap.asImageBitmap()
-            drawImage(
-              image = imageBitmap,
-              srcOffset = androidx.compose.ui.unit.IntOffset.Zero,
-              srcSize = androidx.compose.ui.unit.IntSize(overlayBitmap.width, overlayBitmap.height),
-              dstOffset = androidx.compose.ui.unit.IntOffset(destLeft, destTop),
-              dstSize = androidx.compose.ui.unit.IntSize(
-                overlayTargetWidth.toInt(),
-                overlayTargetHeight.toInt()
-              )
-            )
-          }
-        }
+      if (overlayEnabled) {
+        draw3DOverlayToCanvas(
+          overlayBitmap = overlayBitmap,
+          landmarkResult = landmarkResult,
+          imageWidth = imageWidth,
+          imageHeight = imageHeight
+        )
       }
     }
   }

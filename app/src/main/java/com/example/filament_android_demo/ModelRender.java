@@ -105,14 +105,14 @@ public class ModelRender {
   public static final String headMeshName = "Wolf3D_Head";
   public static final String headName = "Head";
 
-
   // --- Configuration ---
+  public static final String MODEL_PATH = "man1.glb";
   private static final int IMAGE_WIDTH = 600;
   private static final int IMAGE_HEIGHT = 800;
   private static final float VERTICAL_CENTERING_ADJUSTMENT_FACTOR = 0.2f;
-  // private static final float[] SKY_COLOR = {0.2f, 0.4f, 0.8f, 1.0f};
+  public static final float SCALE_FACTOR = 5.0f;
   private static final long RENDER_TIMEOUT_SECONDS = 15;
-  private static final long INIT_TIMEOUT_SECONDS = 20;
+
   private static final long SHUTDOWN_TIMEOUT_SECONDS = 20;
   // --- 只显示头部相关实体的名称列表 ---
   private static final List<String> ENTITY_NAMES_TO_KEEP_VISIBLE = Arrays.asList(
@@ -274,6 +274,7 @@ public class ModelRender {
    */
   /**
    * 异步初始化，包括创建渲染线程、Filament核心对象和加载初始模型。
+   *
    * @param context Android context
    * @return CompletableFuture<Void>，初始化完成时完成，异常时 completeExceptionally
    */
@@ -315,11 +316,11 @@ public class ModelRender {
           Log.i(TAG, "Render thread: initFilamentCore() SUCCEEDED.");
 
           Log.i(TAG, "Render thread: Calling loadModel().");
-          loadModel(context, "man1.glb")
+          loadModel(context, MODEL_PATH)
             .thenCompose(modelLoaded -> {
               if (modelLoaded) {
                 Log.i(TAG, "Render thread: loadModel() SUCCEEDED. Calling updateViewPortAsync().");
-                return updateViewPortAsync(headMeshName, 5.0f);
+                return updateViewPortAsync(headMeshName, SCALE_FACTOR);
               } else {
                 Log.e(TAG, "Render thread: loadModel() FAILED.");
                 CompletableFuture<Void> fail = new CompletableFuture<>();
@@ -474,6 +475,7 @@ public class ModelRender {
 
   /**
    * 应用 MediaPipe 的 landmark 结果并渲染，返回渲染后的 Bitmap。
+   *
    * @param result FaceLandmarkerResult
    * @return CompletableFuture<Bitmap>
    */
@@ -880,7 +882,7 @@ public class ModelRender {
   }
 
   @NonNull
-  // 降级为包级私有
+    // 降级为包级私有
   CompletableFuture<Bitmap> render() {
     // ... (render method remains largely the same as the fixed version from the previous turn) ...
     Log.d(TAG, "render() called.");
@@ -1216,6 +1218,7 @@ public class ModelRender {
 
   /**
    * 异步释放所有资源，关闭渲染线程。
+   *
    * @return CompletableFuture<Void>，资源释放完成时完成
    */
   @NonNull

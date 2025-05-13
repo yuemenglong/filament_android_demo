@@ -59,18 +59,12 @@ import kotlin.math.max
 * */
 
 
-class MainActivity : ComponentActivity(), FaceLandmarkerHelper.LandmarkerListener {
+class MainActivity : ComponentActivity() {
   private lateinit var modelRender: ModelRender
   private var isRendererInitialized by mutableStateOf(false)
 
-  // --- MediaPipe and CameraX ---
-  private lateinit var backgroundExecutor: ExecutorService
-  private lateinit var faceLandmarkerHelper: FaceLandmarkerHelper
-  private var cameraProvider: ProcessCameraProvider? = null
-  private var camera: Camera? = null
-  internal var preview: Preview? = null
-  private var imageAnalyzer: ImageAnalysis? = null
-  private var cameraFacing = CameraSelector.LENS_FACING_FRONT
+  // MediaPipeProcessor 封装
+  private lateinit var mediaPipeProcessor: MediaPipeProcessor
 
   // Compose State for Landmark Results
   private val _landmarkResult = mutableStateOf<FaceLandmarkerResult?>(null)
@@ -90,7 +84,8 @@ class MainActivity : ComponentActivity(), FaceLandmarkerHelper.LandmarkerListene
     registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted: Boolean ->
       if (isGranted) {
         showToast("Camera permission granted")
-        startCamera()
+        // 权限通过后初始化 MediaPipeProcessor
+        mediaPipeProcessor.init(this)
       } else {
         showToast("Camera permission denied")
       }
@@ -115,8 +110,28 @@ class MainActivity : ComponentActivity(), FaceLandmarkerHelper.LandmarkerListene
       }
     }
 
-    backgroundExecutor = Executors.newSingleThreadExecutor()
-    setupFaceLandmarkerHelper()
+    // 初始化 MediaPipeProcessor
+    mediaPipeProcessor = MediaPipeProcessor(this)
+    mediaPipeProcessor.setOnResult { resultBundle ->
+      runOnUiThread {
+        _landmarkResult.value = resultBundle.result
+        _imageWidth.value = resultBundle.inputImageWidth
+        _imageHeight.value = resultBundle.inputImageHeight
+        Log.d("MainActivity", "onResults from MediaPipeProcessor: Timestamp ${resultBundle.result.timestampMs()}")
+      }
+    }
+    mediaPipeProcessor.setOnErrorListener { error, errorCode ->
+      runOnUiThread {
+        showToast("FaceLandmarker Error: $error")
+        Log.e("MainActivity", "FaceLandmarker Error ($errorCode) from MediaPipeProcessor: $error")
+        _landmarkResult.value = null
+      }
+    }
+    mediaPipeProcessor.setOnEmptyListener {
+      runOnUiThread {
+        _landmarkResult.value = null
+      }
+    }
 
     enableEdgeToEdge()
     setContent {
@@ -141,103 +156,20 @@ class MainActivity : ComponentActivity(), FaceLandmarkerHelper.LandmarkerListene
   private fun checkCameraPermission() {
     when (PackageManager.PERMISSION_GRANTED) {
       ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) -> {
-        startCamera()
+        mediaPipeProcessor.init(this)
       }
-
       else -> {
         requestPermissionLauncher.launch(Manifest.permission.CAMERA)
       }
     }
   }
 
-  private fun setupFaceLandmarkerHelper() {
-    faceLandmarkerHelper = FaceLandmarkerHelper(
-      context = this,
-      runningMode = com.google.mediapipe.tasks.vision.core.RunningMode.LIVE_STREAM,
-      minFaceDetectionConfidence = FaceLandmarkerHelper.DEFAULT_FACE_DETECTION_CONFIDENCE,
-      minFaceTrackingConfidence = FaceLandmarkerHelper.DEFAULT_FACE_TRACKING_CONFIDENCE,
-      minFacePresenceConfidence = FaceLandmarkerHelper.DEFAULT_FACE_PRESENCE_CONFIDENCE,
-      maxNumFaces = FaceLandmarkerHelper.DEFAULT_NUM_FACES,
-      currentDelegate = FaceLandmarkerHelper.DELEGATE_CPU,
-      faceLandmarkerHelperListener = this
-    )
-  }
-
-  private fun startCamera() {
-    val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
-    cameraProviderFuture.addListener({
-      try {
-        cameraProvider = cameraProviderFuture.get()
-        bindCameraUseCases()
-      } catch (e: Exception) {
-        Log.e("MainActivity", "Failed to get camera provider", e)
-        showToast("Failed to initialize camera")
-      }
-    }, ContextCompat.getMainExecutor(this))
-  }
-
-  private fun bindCameraUseCases() {
-    val cameraProvider = cameraProvider ?: return
-
-    val cameraSelector = CameraSelector.Builder()
-      .requireLensFacing(cameraFacing)
-      .build()
-
-    // 获取当前屏幕旋转角度 (兼容 API 级别)
-    val rotation = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-      this.display?.rotation ?: Surface.ROTATION_0
-    } else {
-      @Suppress("DEPRECATION")
-      windowManager.defaultDisplay.rotation
-    }
-
-    preview = Preview.Builder()
-      .setTargetAspectRatio(AspectRatio.RATIO_4_3)
-      .setTargetRotation(rotation)
-      .build()
-
-    imageAnalyzer = ImageAnalysis.Builder()
-      .setTargetAspectRatio(AspectRatio.RATIO_4_3)
-      .setTargetRotation(rotation)
-      .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-      .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
-      .build()
-      .also {
-        it.setAnalyzer(backgroundExecutor) { imageProxy ->
-          detectFace(imageProxy)
-        }
-      }
-
-    cameraProvider.unbindAll()
-    try {
-      camera = cameraProvider.bindToLifecycle(
-        this,
-        cameraSelector,
-        preview,
-        imageAnalyzer
-      )
-    } catch (exc: Exception) {
-      Log.e("MainActivity", "Use case binding failed", exc)
-      showToast("Could not start camera: ${exc.message}")
-    }
-  }
-
-  private fun detectFace(imageProxy: ImageProxy) {
-    if (::faceLandmarkerHelper.isInitialized && !faceLandmarkerHelper.isClose()) {
-      faceLandmarkerHelper.detectLiveStream(
-        imageProxy = imageProxy,
-        isFrontCamera = cameraFacing == CameraSelector.LENS_FACING_FRONT
-      )
-    } else {
-      Log.w("MainActivity", "detectFace called but helper not ready.")
-      imageProxy.close()
-    }
-  }
-
   override fun onDestroy() {
     super.onDestroy()
     Log.i("MainActivity", "onDestroy called, cleaning up resources.")
-    backgroundExecutor.shutdown()
+    if (::mediaPipeProcessor.isInitialized) {
+      mediaPipeProcessor.release()
+    }
     if (::modelRender.isInitialized) {
       modelRender.release().handle { _, throwable ->
         if (throwable != null) {
@@ -246,45 +178,6 @@ class MainActivity : ComponentActivity(), FaceLandmarkerHelper.LandmarkerListene
           Log.i("MainActivity", "ModelRender released successfully.")
         }
       }
-    }
-    if (::faceLandmarkerHelper.isInitialized && !faceLandmarkerHelper.isClose()) {
-      Executors.newSingleThreadExecutor().execute {
-        faceLandmarkerHelper.clearFaceLandmarker()
-        Log.i("MainActivity", "FaceLandmarkerHelper cleaned up.")
-      }
-    }
-    cameraProvider?.unbindAll()
-  }
-
-  override fun onError(error: String, errorCode: Int) {
-    runOnUiThread {
-      showToast("FaceLandmarker Error: $error")
-      Log.e("MainActivity", "FaceLandmarker Error ($errorCode): $error")
-      _landmarkResult.value = null
-    }
-  }
-
-  override fun onResults(resultBundle: FaceLandmarkerHelper.ResultBundle) {
-    runOnUiThread {
-      // *** ADD LOGGING HERE ***
-      val result = resultBundle.result
-      val matrixExists =
-        result.facialTransformationMatrixes().isPresent && result.facialTransformationMatrixes()
-          .get().isNotEmpty()
-      Log.d(
-        "MainActivity",
-        "onResults: Received result. Matrix present? $matrixExists (Timestamp: ${result.timestampMs()})"
-      )
-      // *************************
-      _landmarkResult.value = resultBundle.result
-      _imageWidth.value = resultBundle.inputImageWidth
-      _imageHeight.value = resultBundle.inputImageHeight
-    }
-  }
-
-  override fun onEmpty() {
-    runOnUiThread {
-      _landmarkResult.value = null
     }
   }
 

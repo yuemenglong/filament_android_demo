@@ -65,6 +65,46 @@ fun DrawScope.drawFaceLandmarksToCanvas(
   }
 }
 
+/**
+ * 这是一个用于从4x4变换矩阵中提取欧拉角的辅助函数。
+ * 该函数假定MediaPipe的脸部姿态通常使用YXZ（先Y轴偏航，后X轴俯仰，最后Z轴滚动）欧拉角顺序。
+ * 返回的数组顺序为 [俯仰角 (pitch), 偏航角 (yaw), 翻滚角 (roll)]，单位为弧度。
+ *
+ * 注意：在俯仰角接近 +/- 90度时（万向锁），偏航角和翻滚角会变得耦合，
+ * 此时计算可能不完全精确，但对于大多数常见的面部姿态追踪场景来说是足够的。
+ *
+ * @param matrix 包含4x4变换矩阵的16个浮点数数组（行主序）。
+ * @return 包含俯仰、偏航和翻滚角的浮点数数组，顺序为 [pitch, yaw, roll]。
+ */
+private fun extractEulerAngles(matrix: FloatArray): FloatArray {
+  require(matrix.size == 16) { "变换矩阵必须是4x4矩阵（16个元素）。" }
+
+  // 提取3x3旋转矩阵的元素 (4x4矩阵的左上角3x3部分)
+  val R00 = matrix[0]
+  val R01 = matrix[1]
+  val R02 = matrix[2]
+  val R10 = matrix[4]
+  val R11 = matrix[5]
+  val R12 = matrix[6]
+  val R20 = matrix[8]
+  val R21 = matrix[9]
+  val R22 = matrix[10]
+
+  // 计算俯仰角 (Pitch, 绕X轴旋转)
+  // 公式: pitch = asin(-R12)
+  val pitch = Math.asin(-R12.toDouble()).toFloat()
+
+  // 计算偏航角 (Yaw, 绕Y轴旋转)
+  // 公式: yaw = atan2(R02, R22)
+  val yaw = Math.atan2(R02.toDouble(), R22.toDouble()).toFloat()
+
+  // 计算翻滚角 (Roll, 绕Z轴旋转)
+  // 公式: roll = atan2(R10, R11)
+  val roll = Math.atan2(R10.toDouble(), R11.toDouble()).toFloat()
+
+  // 返回顺序为 [pitch, yaw, roll]
+  return floatArrayOf(pitch, yaw, roll)
+}
 
 /**
  * 在 Canvas 上根据人脸关键点绘制 3D 模型 overlay（Bitmap）。
@@ -85,6 +125,15 @@ fun DrawScope.draw3DOverlayToCanvas(
 
   if (imageWidth <= 0 || imageHeight <= 0 || canvasWidth <= 0f || canvasHeight <= 0f) {
     return
+  }
+  val yaw = if (landmarkResult.facialTransformationMatrixes().isPresent &&
+    landmarkResult.facialTransformationMatrixes().get().isNotEmpty()
+  ) {
+    val transformationMatrix = landmarkResult.facialTransformationMatrixes().get()[0]
+    val eulerAngles = extractEulerAngles(transformationMatrix)
+    eulerAngles[1]
+  } else {
+    0.0f
   }
 
   val scaleFactor = max(canvasWidth / imageWidth, canvasHeight / imageHeight)

@@ -100,7 +100,7 @@ public class ModelRender {
   // 可选：存储 ApplicationContext 以便后续使用
   private volatile Context mApplicationContext;
 
-  private static final String TAG = "ModelRender_Debug";
+  private static final String TAG = "ModelRender";
   // Positive value shifts model visually downwards. Tune as needed.
   public static final String headMeshName = "Wolf3D_Head";
   public static final String headName = "Head";
@@ -262,35 +262,6 @@ public class ModelRender {
 
     Log.i(TAG, "Filament core resources initialized successfully on render thread.");
     return true;
-  }
-
-  private void initLoadModel(Context context) {
-    // ***** MODIFICATION START *****
-    // 初始化成功后异步加载模型
-    Log.i(TAG, "Initiating initial model load: man1.glb");
-    loadModel(context, "man1.glb")
-      .thenAccept(modelLoaded -> {
-        if (modelLoaded) {
-          Log.i(TAG, "Initial model 'man1.glb' loaded successfully (async).");
-          // Add initial viewport adjustment for overlay
-          Log.i(TAG, "Scheduling initial viewport adjustment after model load for overlay purposes.");
-          // Use headName or headMeshName if a specific part should be centered.
-          // Adjust scaleFactor (e.g., 4.0f) as needed for a good default overlay size.
-          updateViewPortAsync(headMeshName, 5.0f)
-            .thenRun(() -> Log.i(TAG, "Initial viewport adjustment completed on render thread."))
-            .exceptionally(ex -> {
-              Log.e(TAG, "Initial viewport adjustment failed on render thread.", ex);
-              return null;
-            });
-        } else {
-          Log.e(TAG, "Initial model 'man1.glb' failed to load (async).");
-        }
-      })
-      .exceptionally(ex -> {
-        Log.e(TAG, "Exception occurred during initial model 'man1.glb' load (async).", ex);
-        return null;
-      });
-    // ***** MODIFICATION END *****
   }
 
   /**
@@ -702,11 +673,12 @@ public class ModelRender {
       loadFuture.completeExceptionally(new IllegalStateException("Renderer is cleaned up."));
       return loadFuture;
     }
-    if (!mIsInitialized.get()) {
-      Log.e(TAG, "loadModel: Renderer not initialized, aborting.");
-      loadFuture.completeExceptionally(new IllegalStateException("Renderer not initialized."));
-      return loadFuture;
-    }
+    // 移除 mIsInitialized 检查，避免初始化链路中提前失败
+    // if (!mIsInitialized.get()) {
+    //   Log.e(TAG, "loadModel: Renderer not initialized, aborting.");
+    //   loadFuture.completeExceptionally(new IllegalStateException("Renderer not initialized."));
+    //   return loadFuture;
+    // }
     if (mRenderExecutor == null || mRenderExecutor.isShutdown()) {
       Log.e(TAG, "loadModel: Render executor not available, aborting.");
       loadFuture.completeExceptionally(new IllegalStateException("Render executor not available."));
@@ -1149,10 +1121,10 @@ public class ModelRender {
       future.completeExceptionally(new IllegalStateException("Renderer is cleaned up."));
       return future;
     }
-    if (!mIsInitialized.get()) {
-      future.completeExceptionally(new IllegalStateException("Renderer not initialized."));
-      return future;
-    }
+    // if (!mIsInitialized.get()) {
+    //   future.completeExceptionally(new IllegalStateException("Renderer not initialized."));
+    //   return future;
+    // }
     if (mRenderExecutor == null || mRenderExecutor.isShutdown()) {
       future.completeExceptionally(new IllegalStateException("Render executor not available."));
       return future;

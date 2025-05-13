@@ -69,6 +69,11 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+/* 已实现 TODO:
+ * 1. 移除不必要的日志
+ * 2. 除了init/applyLandmarkResult/render做成public，其他的所有方法都降级为private
+ */
+
 public class ModelRender {
   /**
    * 存储单个实体上的 morph target 信息。
@@ -356,7 +361,7 @@ public class ModelRender {
    */
   // 降级为包级私有
   @NonNull
-  CompletableFuture<Void> applyLandmarkResult(@Nullable FaceLandmarkerResult result) {
+  public CompletableFuture<Void> applyLandmarkResult(@Nullable FaceLandmarkerResult result) {
     CompletableFuture<Void> future = new CompletableFuture<>();
 
     if (mIsCleanedUp.get()) {
@@ -386,7 +391,6 @@ public class ModelRender {
       for (Category blendshape : blendshapes) {
         blendshapeMap.put(blendshape.categoryName(), blendshape.score());
       }
-      Log.d(TAG, "Extracted " + blendshapeMap.size() + " blendshapes.");
     } else {
       Log.i(TAG, "applyLandmarkResult: No blendshapes found in the result.");
       // Continue without blendshapes, still apply rotation if available
@@ -400,8 +404,6 @@ public class ModelRender {
       if (faceTransformMatrix.length != 16) {
         Log.e(TAG, "applyLandmarkResult: Facial transformation matrix has incorrect size: " + faceTransformMatrix.length);
         faceTransformMatrix = null; // Invalidate if incorrect size
-      } else {
-        Log.d(TAG, "Extracted facial transformation matrix.");
       }
     } else {
       Log.i(TAG, "applyLandmarkResult: No facial transformation matrix found in the result.");
@@ -413,46 +415,33 @@ public class ModelRender {
     final Map<String, Float> finalBlendshapeMap = blendshapeMap;
     final float[] finalFaceTransformMatrix = faceTransformMatrix; // Can be null
 
-    Log.d(TAG, "Submitting applyLandmarkResult task to render thread.");
     mRenderExecutor.submit(() -> {
       try {
         long startTime = System.nanoTime();
 
         // 1. Apply Blendshapes
         if (!finalBlendshapeMap.isEmpty()) {
-          Log.d(TAG, "Render task: Applying blendshapes...");
           setMorphWeightsInternal(finalBlendshapeMap);
-        } else {
-          Log.d(TAG, "Render task: No blendshapes to apply.");
         }
 
         // 2. Apply Rotation (if matrix exists)
         boolean rotationApplied = false;
         if (finalFaceTransformMatrix != null) {
-          Log.d(TAG, "Render task: Calculating and applying rotation...");
           // Convert matrix to Euler angles
           float[] eulerAngles = matrixToEulerAnglesZYX(finalFaceTransformMatrix);
-          Log.d(TAG, "Render task: Calculated Euler Angles (X,Y,Z radians): " + Arrays.toString(eulerAngles));
-
           // Apply rotation to the Head entity
           rotationApplied = rotateInternal(headName, -eulerAngles[0], -eulerAngles[1], -eulerAngles[2]);
           if (!rotationApplied) {
             Log.e(TAG, "Render task: Failed to apply rotation.");
           }
-        } else {
-          Log.d(TAG, "Render task: No rotation matrix to apply.");
         }
 
         // 3. Update Bone Matrices (if rotation was applied)
         if (rotationApplied) {
-          Log.d(TAG, "Render task: Updating bone matrices due to rotation...");
           updateBoneMatricesInternal();
-        } else {
-          Log.d(TAG, "Render task: Skipping bone update as no rotation was applied.");
         }
 
         long endTime = System.nanoTime();
-        Log.d(TAG, "Render task: applyLandmarkResult execution took " + (endTime - startTime) / 1e6 + " ms.");
 
         future.complete(null); // Signal successful completion
 
@@ -492,7 +481,6 @@ public class ModelRender {
     // 先应用 landmark，再渲染
     return applyLandmarkResult(result)
       .thenComposeAsync(aVoid -> {
-        Log.d(TAG, "Landmark application complete, proceeding to render.");
         return render();
       }, mRenderExecutor)
       .exceptionally(ex -> {
@@ -659,7 +647,7 @@ public class ModelRender {
    */
   @NonNull
   // 降级为包级私有
-  CompletableFuture<Boolean> loadModel(@NonNull Context context, @NonNull String assetPath) {
+  private CompletableFuture<Boolean> loadModel(@NonNull Context context, @NonNull String assetPath) {
     Log.i(TAG, "loadModel: START for asset: " + assetPath);
     CompletableFuture<Boolean> loadFuture = new CompletableFuture<>();
 
@@ -697,7 +685,6 @@ public class ModelRender {
           mAssetEntities = null;
         }
         mMorphTargetInfoMap.clear();
-        Log.d(TAG, "loadModel render thread: Cleared morph target info map for new model.");
 
         // --- Read asset into ByteBuffer ---
         AssetManager assetManager = context.getAssets();
@@ -712,7 +699,6 @@ public class ModelRender {
           }
           byte[] bytes = byteArrayOutputStream.toByteArray();
           byteBuffer = ByteBuffer.wrap(bytes);
-          Log.d(TAG, "loadModel render thread: ByteBuffer READY for " + assetPath + ", bytes=" + bytes.length);
         } catch (IOException e) {
           Log.e(TAG, "loadModel render thread: Failed to read asset: " + assetPath, e);
           loadFuture.completeExceptionally(e);
@@ -726,22 +712,18 @@ public class ModelRender {
           return;
         }
 
-        Log.d(TAG, "loadModel render thread: Calling mAssetLoader.createAsset() for " + assetPath);
         FilamentAsset newAsset = mAssetLoader.createAsset(byteBuffer);
         if (newAsset == null) {
           Log.e(TAG, "loadModel render thread: Failed to load asset: " + assetPath + ". createAsset returned null.");
           loadFuture.complete(false);
           return;
         }
-        Log.d(TAG, "loadModel render thread: mAssetLoader.createAsset() DONE for " + assetPath);
         Log.i(TAG, "loadModel render thread: Asset created: " + assetPath);
         mCurrentAsset = newAsset;
 
         // --- Load Resources (Textures, etc.) ---
-        Log.d(TAG, "loadModel render thread: Calling mResourceLoader.loadResources() for " + assetPath);
         mResourceLoader.loadResources(newAsset);
         newAsset.releaseSourceData();
-        Log.d(TAG, "loadModel render thread: mResourceLoader.loadResources() DONE for " + assetPath);
         Log.i(TAG, "loadModel render thread: Resources loaded for asset: " + assetPath);
 
         // --- Add to Scene ---
@@ -760,10 +742,7 @@ public class ModelRender {
 
             if (entityName != null && !entityName.isEmpty() && rm.hasComponent(entityId)) {
               if (!ENTITY_NAMES_TO_KEEP_VISIBLE.contains(entityName)) {
-                Log.d(TAG, "loadModel render thread: Marking entity for hiding: '" + entityName + "' (ID: " + entityId + ")");
                 entitiesToRemoveFromScene.add(entityId);
-              } else {
-                Log.d(TAG, "loadModel render thread: Keeping entity visible: '" + entityName + "' (ID: " + entityId + ")");
               }
             }
           }
@@ -781,7 +760,6 @@ public class ModelRender {
 
         // ***** MODIFICATION START: Record Entity Names and Transforms *****
         mEntityInitialTransforms.clear();
-        Log.d(TAG, "loadModel render thread: Cleared previous entity transform map.");
 
         if (mAssetEntities != null && mAssetEntities.length > 0) {
           Log.i(TAG, "loadModel render thread: --- Processing Entities in Asset '" + assetPath + "' for Transform Map ---");
@@ -797,12 +775,9 @@ public class ModelRender {
                 tm.getTransform(instance, transformMatrix);
 
                 mEntityInitialTransforms.put(entityName, transformMatrix);
-                Log.i(TAG, "loadModel render thread: Stored transform for Entity ID: " + entityId + ", Name: '" + entityName + "'");
               } else {
                 Log.w(TAG, "loadModel render thread: Entity ID: " + entityId + ", Name: '" + entityName + "' has a name but no Transform component. Skipping transform storage.");
               }
-            } else {
-              Log.d(TAG, "loadModel render thread: Entity ID: " + entityId + " has no specific name in the glTF asset. Skipping transform storage.");
             }
           }
           Log.i(TAG, "loadModel render thread: --- Finished Processing Entities for Transform Map ---");
@@ -839,7 +814,6 @@ public class ModelRender {
           Matrix.multiplyMM(finalTransform, 0, translationMatrix, 0, scaleMatrix, 0);
 
           tm.setTransform(rootInstance, finalTransform);
-          Log.d(TAG, "loadModel render thread: Manually transformed asset to unit cube at origin. Scale: " + scaleFactor);
         } else {
           Log.w(TAG, "loadModel render thread: Asset root entity " + rootEntity + " does not have a transform component.");
         }
@@ -876,9 +850,8 @@ public class ModelRender {
 
   @NonNull
     // 降级为包级私有
-  CompletableFuture<Bitmap> render() {
+  public CompletableFuture<Bitmap> render() {
     // ... (render method remains largely the same as the fixed version from the previous turn) ...
-    Log.d(TAG, "render() called.");
     CompletableFuture<Bitmap> resultFuture = new CompletableFuture<>();
 
     if (mIsCleanedUp.get()) {
@@ -953,7 +926,6 @@ public class ModelRender {
             }
           } finally {
             frameLatch.countDown();
-            Log.d(TAG, "readPixelsCallback finished processing.");
           }
         };
 
@@ -1026,7 +998,6 @@ public class ModelRender {
       }
     });
 
-    Log.d(TAG, "render() returning future immediately.");
     return resultFuture;
   }
 
@@ -1091,13 +1062,6 @@ public class ModelRender {
     // 先平移后缩放: final = scale * translation
     Matrix.multiplyMM(finalTransform, 0, scaleMatrix, 0, translationMatrix, 0);
 
-    Log.d(TAG, "fitIntoUnitCubeInternal: Center=" + Arrays.toString(center) +
-      ", HalfExtent=" + Arrays.toString(halfExtent) +
-      ", MaxExtent=" + maxExtent +
-      ", FinalScale=" + finalScale +
-      ", AdjustedCenterZ=" + adjustedCenterZ +
-      ", TargetYToCenter=" + targetYToCenter +
-      ", VerticalOffsetInAABBSpace=" + verticalOffsetInAABBSpace);
     return finalTransform;
   }
 
@@ -1110,7 +1074,7 @@ public class ModelRender {
    */
   @NonNull
   // 降级为包级私有
-  CompletableFuture<Void> updateViewPortAsync(@Nullable String entityName, float scaleFactor) {
+  private CompletableFuture<Void> updateViewPortAsync(@Nullable String entityName, float scaleFactor) {
     CompletableFuture<Void> future = new CompletableFuture<>();
     if (mIsCleanedUp.get()) {
       future.completeExceptionally(new IllegalStateException("Renderer is cleaned up."));
@@ -1335,7 +1299,7 @@ public class ModelRender {
    */
   @NonNull
   // 降级为包级私有
-  CompletableFuture<Boolean> rotate(@NonNull String entityName, float x, float y, float z) {
+  private CompletableFuture<Boolean> rotate(@NonNull String entityName, float x, float y, float z) {
     CompletableFuture<Boolean> resultFuture = new CompletableFuture<>();
 
     if (mIsCleanedUp.get()) {
@@ -1486,14 +1450,12 @@ public class ModelRender {
     // ***** 新增：清空 Morph Target Map *****
     if (mMorphTargetInfoMap != null) {
       mMorphTargetInfoMap.clear();
-      Log.d(TAG, "Cleared morph target info map during cleanup.");
     }
     // ***************************************
 
     // ***** 新增：清空实体变换 Map *****
     if (mEntityInitialTransforms != null) {
       mEntityInitialTransforms.clear();
-      Log.d(TAG, "Cleared entity transform map during cleanup.");
       mEntityInitialTransforms = null; // 显式设为 null
     }
     // ***********************************
@@ -1544,7 +1506,6 @@ public class ModelRender {
         if (mScene != null && mEngine.isValidScene(mScene)) {
           if (mAssetEntities != null && mAssetEntities.length > 0) {
             mScene.removeEntities(mAssetEntities);
-            Log.d(TAG, "Removed asset entities from scene during cleanup.");
           }
         }
 
@@ -1552,10 +1513,8 @@ public class ModelRender {
           LightManager lm = mEngine.getLightManager();
           if (lm.hasComponent(mLightEntity)) {
             lm.destroy(mLightEntity);
-            Log.d(TAG, "Destroyed light component for entity: " + mLightEntity);
           }
           EntityManager.get().destroy(mLightEntity);
-          Log.d(TAG, "Destroyed light entity: " + mLightEntity);
           mLightEntity = 0;
         }
 
@@ -1702,7 +1661,6 @@ public class ModelRender {
     }
 
     if (!entityWeightsMap.isEmpty()) {
-      Log.d(TAG, "Applying morph weights to " + entityWeightsMap.size() + " entities.");
       for (Map.Entry<Integer, float[]> entityEntry : entityWeightsMap.entrySet()) {
         int entityId = entityEntry.getKey();
         float[] finalWeights = entityEntry.getValue();
@@ -1710,12 +1668,8 @@ public class ModelRender {
         if (rm.hasComponent(entityId)) {
           var instance = rm.getInstance(entityId);
           rm.setMorphWeights(instance, finalWeights, 0);
-        } else {
-          Log.w(TAG, "Entity " + entityId + " no longer has renderable component when applying weights?");
         }
       }
-    } else {
-      Log.d(TAG, "No entities needed morph weight updates.");
     }
   }
 

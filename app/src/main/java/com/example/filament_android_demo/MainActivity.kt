@@ -255,8 +255,13 @@ class MainActivity : ComponentActivity(), FaceLandmarkerHelper.LandmarkerListene
     runOnUiThread {
       // *** ADD LOGGING HERE ***
       val result = resultBundle.result
-      val matrixExists = result.facialTransformationMatrixes().isPresent && result.facialTransformationMatrixes().get().isNotEmpty()
-      Log.d("MainActivity", "onResults: Received result. Matrix present? $matrixExists (Timestamp: ${result.timestampMs()})")
+      val matrixExists =
+        result.facialTransformationMatrixes().isPresent && result.facialTransformationMatrixes()
+          .get().isNotEmpty()
+      Log.d(
+        "MainActivity",
+        "onResults: Received result. Matrix present? $matrixExists (Timestamp: ${result.timestampMs()})"
+      )
       // *************************
       _landmarkResult.value = resultBundle.result
       _imageWidth.value = resultBundle.inputImageWidth
@@ -311,13 +316,13 @@ fun MainScreen(
         if (isOverlayLoading) return@LaunchedEffect
         isOverlayLoading = true
 
-        Log.d("MainScreen", "Overlay: Applying landmarks and rendering for timestamp ${landmarkResult.timestampMs()}.")
         renderer.applyLandmarkResultAndRender(landmarkResult)
           .handle { bitmap, throwable ->
             (context as? ComponentActivity)?.runOnUiThread {
               isOverlayLoading = false
               if (throwable != null) {
-                val cause = if (throwable is CompletionException) throwable.cause ?: throwable else throwable
+                val cause =
+                  if (throwable is CompletionException) throwable.cause ?: throwable else throwable
                 Log.e("MainScreen", "Overlay: Rendering failed", cause)
                 overlayBitmap = null
               } else if (bitmap != null) {
@@ -389,7 +394,9 @@ fun MainScreen(
     Spacer(modifier = Modifier.height(16.dp))
 
     Row(
-      modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+      modifier = Modifier
+        .fillMaxWidth()
+        .padding(horizontal = 16.dp, vertical = 8.dp),
       verticalAlignment = Alignment.CenterVertically,
       horizontalArrangement = Arrangement.SpaceBetween
     ) {
@@ -430,11 +437,7 @@ fun MainScreen(
 
           Log.d("MainScreen", "Button clicked. Adjusting viewport for '$entityNameToCenter'...")
 
-          renderer.updateViewPortAsync(entityNameToCenter, scaleFactor)
-            .thenCompose {
-              Log.d("MainScreen", "Viewport update complete. Applying landmarks and rendering...")
-              renderer.applyLandmarkResultAndRender(resultToApply)
-            }
+          renderer.applyLandmarkResultAndRender(resultToApply)
             .handle { bitmap, throwable ->
               (context as? ComponentActivity)?.runOnUiThread {
                 isLoading = false
@@ -543,7 +546,10 @@ fun CameraPreviewWithLandmarks(
         cameraPreviewUseCase.setSurfaceProvider(pv.surfaceProvider)
         Log.d("CameraPreviewWithLandmarks", "SurfaceProvider SET successfully.")
       } else {
-        Log.d("CameraPreviewWithLandmarks", "SurfaceProvider NOT set: mainActivity.preview is ${mainActivity?.preview}, localPreviewView is $pv")
+        Log.d(
+          "CameraPreviewWithLandmarks",
+          "SurfaceProvider NOT set: mainActivity.preview is ${mainActivity?.preview}, localPreviewView is $pv"
+        )
       }
     }
 
@@ -590,7 +596,9 @@ fun CameraPreviewWithLandmarks(
         }
       }
       // Draw Overlay Bitmap
-      if (overlayEnabled && overlayBitmap != null && landmarkResult != null && landmarkResult.faceLandmarks().isNotEmpty()) {
+      if (overlayEnabled && overlayBitmap != null && landmarkResult != null && landmarkResult.faceLandmarks()
+          .isNotEmpty()
+      ) {
         val allLandmarks = landmarkResult.faceLandmarks().firstOrNull() // Assuming one face
 
         if (allLandmarks != null && allLandmarks.isNotEmpty()) {
@@ -628,7 +636,8 @@ fun CameraPreviewWithLandmarks(
             val overlayTargetHeight = overlayTargetWidth / overlayAspectRatio
 
             val destLeft = (faceCenterX - overlayTargetWidth / 2f).toInt()
-            val destTop = (faceCenterY - overlayTargetHeight / 2f).toInt() // Adjust anchor if needed
+            val destTop =
+              (faceCenterY - overlayTargetHeight / 2f).toInt() // Adjust anchor if needed
 
             val imageBitmap = overlayBitmap.asImageBitmap()
             drawImage(
@@ -636,7 +645,10 @@ fun CameraPreviewWithLandmarks(
               srcOffset = androidx.compose.ui.unit.IntOffset.Zero,
               srcSize = androidx.compose.ui.unit.IntSize(overlayBitmap.width, overlayBitmap.height),
               dstOffset = androidx.compose.ui.unit.IntOffset(destLeft, destTop),
-              dstSize = androidx.compose.ui.unit.IntSize(overlayTargetWidth.toInt(), overlayTargetHeight.toInt())
+              dstSize = androidx.compose.ui.unit.IntSize(
+                overlayTargetWidth.toInt(),
+                overlayTargetHeight.toInt()
+              )
             )
           }
         }

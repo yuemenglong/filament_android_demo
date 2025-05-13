@@ -69,13 +69,6 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/*TODO
- * ModelRender这个类对外只暴露以下方法
- * 1. init,作用为初始化，包括创建渲染线程，加载模型等（返回future）
- * 2. applyLandmarkResultAndRender,作用为应用MediaPipe的landmark结果，并返回渲染后的图片(返回future)
- * 3. release,完成任务，释放资源
- * */
-
 public class ModelRender {
   /**
    * 存储单个实体上的 morph target 信息。

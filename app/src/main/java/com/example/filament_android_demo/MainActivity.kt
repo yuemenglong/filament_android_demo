@@ -30,7 +30,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
@@ -38,7 +37,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.core.content.ContextCompat
-import com.example.filament_android_demo.HeadlessRenderer.headMeshName
+import com.example.filament_android_demo.ModelRender.headMeshName
 import com.example.filament_android_demo.ui.theme.Filament_android_demoTheme
 import com.google.mediapipe.examples.facelandmarker.FaceLandmarkerHelper
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarkerResult
@@ -48,8 +47,8 @@ import java.util.concurrent.Executors
 import kotlin.math.max
 
 class MainActivity : ComponentActivity(), FaceLandmarkerHelper.LandmarkerListener {
-  private lateinit var headlessRenderer: HeadlessRenderer
-  private var isRendererInitialized = false
+  private lateinit var modelRender: ModelRender
+  private var isRendererInitialized by mutableStateOf(false)
 
   // --- MediaPipe and CameraX ---
   private lateinit var backgroundExecutor: ExecutorService
@@ -86,21 +85,21 @@ class MainActivity : ComponentActivity(), FaceLandmarkerHelper.LandmarkerListene
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
-    headlessRenderer = HeadlessRenderer()
+    modelRender = ModelRender()
 
-    try {
-      isRendererInitialized = headlessRenderer.init(this)
-      if (!isRendererInitialized) {
-        showToast("HeadlessRenderer 初始化失败")
-        Log.e("MainActivity", "HeadlessRenderer initialization failed.")
-      } else {
-        showToast("HeadlessRenderer 初始化成功")
-        Log.i("MainActivity", "HeadlessRenderer initialization successful.")
+    // 异步初始化 ModelRender，使用 CompletableFuture
+    modelRender.init(this).handle { _, throwable ->
+      runOnUiThread {
+        if (throwable != null) {
+          isRendererInitialized = false
+          showToast("HeadlessRenderer 初始化失败: ${throwable.message}")
+          Log.e("MainActivity", "HeadlessRenderer initialization failed", throwable)
+        } else {
+          isRendererInitialized = true
+          showToast("HeadlessRenderer 初始化成功")
+          Log.i("MainActivity", "HeadlessRenderer initialization successful.")
+        }
       }
-    } catch (e: Exception) {
-      isRendererInitialized = false
-      showToast("HeadlessRenderer 初始化异常: ${e.message}")
-      Log.e("MainActivity", "HeadlessRenderer initialization exception", e)
     }
 
     backgroundExecutor = Executors.newSingleThreadExecutor()
@@ -112,7 +111,7 @@ class MainActivity : ComponentActivity(), FaceLandmarkerHelper.LandmarkerListene
         Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
           MainScreen(
             modifier = Modifier.padding(innerPadding),
-            renderer = headlessRenderer,
+            renderer = modelRender,
             isRendererReady = isRendererInitialized,
             onCheckCameraPermission = { checkCameraPermission() },
             landmarkResult = landmarkResult.value,
@@ -226,8 +225,14 @@ class MainActivity : ComponentActivity(), FaceLandmarkerHelper.LandmarkerListene
     super.onDestroy()
     Log.i("MainActivity", "onDestroy called, cleaning up resources.")
     backgroundExecutor.shutdown()
-    if (::headlessRenderer.isInitialized) {
-      headlessRenderer.cleanup()
+    if (::modelRender.isInitialized) {
+      modelRender.release().handle { _, throwable ->
+        if (throwable != null) {
+          Log.e("MainActivity", "Error during ModelRender release", throwable)
+        } else {
+          Log.i("MainActivity", "ModelRender released successfully.")
+        }
+      }
     }
     if (::faceLandmarkerHelper.isInitialized && !faceLandmarkerHelper.isClose()) {
       Executors.newSingleThreadExecutor().execute {
@@ -275,7 +280,7 @@ class MainActivity : ComponentActivity(), FaceLandmarkerHelper.LandmarkerListene
 @Composable
 fun MainScreen(
   modifier: Modifier = Modifier,
-  renderer: HeadlessRenderer,
+  renderer: ModelRender,
   isRendererReady: Boolean,
   onCheckCameraPermission: () -> Unit,
   landmarkResult: FaceLandmarkerResult?,
@@ -301,34 +306,30 @@ fun MainScreen(
 
   // LaunchedEffect for real-time overlay rendering
   LaunchedEffect(landmarkResult, currentOverlayEnabled, isRendererReady) {
-    if (currentOverlayEnabled && isRendererReady && renderer.isRenderExecutorAvailable()) {
+    if (currentOverlayEnabled && isRendererReady) {
       if (landmarkResult != null) {
-        if (isOverlayLoading) return@LaunchedEffect // Already processing a frame
+        if (isOverlayLoading) return@LaunchedEffect
         isOverlayLoading = true
 
         Log.d("MainScreen", "Overlay: Applying landmarks and rendering for timestamp ${landmarkResult.timestampMs()}.")
-        renderer.applyLandmarkResult(landmarkResult)
-          .thenCompose {
-            renderer.render()
-          }
+        renderer.applyLandmarkResultAndRender(landmarkResult)
           .handle { bitmap, throwable ->
             (context as? ComponentActivity)?.runOnUiThread {
               isOverlayLoading = false
               if (throwable != null) {
                 val cause = if (throwable is CompletionException) throwable.cause ?: throwable else throwable
                 Log.e("MainScreen", "Overlay: Rendering failed", cause)
-                overlayBitmap = null // Clear on error
+                overlayBitmap = null
               } else if (bitmap != null) {
                 Log.d("MainScreen", "Overlay: Rendering successful.")
                 overlayBitmap = bitmap
               } else {
                 Log.e("MainScreen", "Overlay: Rendering completed but bitmap was null.")
-                overlayBitmap = null // Clear if null
+                overlayBitmap = null
               }
             }
           }
       } else {
-        // No face detected or result is null, clear the overlay
         if (overlayBitmap != null) {
           overlayBitmap = null
           Log.d("MainScreen", "Overlay: No landmark result, clearing overlay bitmap.")
@@ -342,7 +343,7 @@ fun MainScreen(
         overlayBitmap = null
         Log.d("MainScreen", "Overlay: Disabled, clearing overlay bitmap.")
       }
-      if (isOverlayLoading) { // Reset if disabled while loading
+      if (isOverlayLoading) {
         isOverlayLoading = false
       }
     }
@@ -431,12 +432,8 @@ fun MainScreen(
 
           renderer.updateViewPortAsync(entityNameToCenter, scaleFactor)
             .thenCompose {
-              Log.d("MainScreen", "Viewport update complete. Applying latest landmark result...")
-              renderer.applyLandmarkResult(resultToApply)
-            }
-            .thenCompose {
-              Log.d("MainScreen", "Landmark result applied. Starting Filament render...")
-              renderer.render()
+              Log.d("MainScreen", "Viewport update complete. Applying landmarks and rendering...")
+              renderer.applyLandmarkResultAndRender(resultToApply)
             }
             .handle { bitmap, throwable ->
               (context as? ComponentActivity)?.runOnUiThread {

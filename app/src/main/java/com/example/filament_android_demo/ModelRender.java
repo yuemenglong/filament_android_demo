@@ -43,7 +43,6 @@ import com.google.android.filament.gltfio.MaterialProvider; // Use gltfio versio
 import com.google.android.filament.gltfio.ResourceLoader;
 import com.google.android.filament.gltfio.UbershaderProvider;
 
-import com.google.android.filament.utils.Float3;
 import com.google.android.filament.utils.Utils;
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarkerResult;
 
@@ -70,14 +69,14 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+/*TODO
+ * ModelRender这个类对外只暴露以下方法
+ * 1. init,作用为初始化，包括创建渲染线程，加载模型等（返回future）
+ * 2. applyLandmarkResultAndRender,作用为应用MediaPipe的landmark结果，并返回渲染后的图片(返回future)
+ * 3. release,完成任务，释放资源
+ * */
 
-public class HeadlessRenderer {
-
-  // Add this method inside the HeadlessRenderer class
-  public boolean isRenderExecutorAvailable() {
-    return mRenderExecutor != null && !mRenderExecutor.isShutdown();
-  }
-
+public class ModelRender {
   /**
    * 存储单个实体上的 morph target 信息。
    */
@@ -96,18 +95,25 @@ public class HeadlessRenderer {
   }
 
   // Morph Target 名称 -> 受影响的 MorphInfo 列表
-  private volatile Map<String, List<MorphInfo>> mMorphTargetInfoMap = new ConcurrentHashMap<>();
-
+  private final Map<String, List<MorphInfo>> mMorphTargetInfoMap = new ConcurrentHashMap<>();
 
   // 可选：存储 ApplicationContext 以便后续使用
   private volatile Context mApplicationContext;
 
-  private static final String TAG = "HeadlessFilament";
+  private static final String TAG = "ModelRender";
   // Positive value shifts model visually downwards. Tune as needed.
-  private static final float VERTICAL_CENTERING_ADJUSTMENT_FACTOR = 0.2f;
   public static final String headMeshName = "Wolf3D_Head";
   public static final String headName = "Head";
 
+
+  // --- Configuration ---
+  private static final int IMAGE_WIDTH = 600;
+  private static final int IMAGE_HEIGHT = 800;
+  private static final float VERTICAL_CENTERING_ADJUSTMENT_FACTOR = 0.2f;
+  // private static final float[] SKY_COLOR = {0.2f, 0.4f, 0.8f, 1.0f};
+  private static final long RENDER_TIMEOUT_SECONDS = 15;
+  private static final long INIT_TIMEOUT_SECONDS = 20;
+  private static final long SHUTDOWN_TIMEOUT_SECONDS = 20;
   // --- 只显示头部相关实体的名称列表 ---
   private static final List<String> ENTITY_NAMES_TO_KEEP_VISIBLE = Arrays.asList(
     "Wolf3D_Head",
@@ -117,14 +123,6 @@ public class HeadlessRenderer {
     "Wolf3D_Hair"
 //      "Wolf3D_Glasses"
   );
-  // --- Configuration ---
-  private static final int IMAGE_WIDTH = 600;
-  private static final int IMAGE_HEIGHT = 800;
-  // private static final float[] SKY_COLOR = {0.2f, 0.4f, 0.8f, 1.0f};
-  private static final long RENDER_TIMEOUT_SECONDS = 15;
-  private static final long INIT_TIMEOUT_SECONDS = 20;
-  private static final long SHUTDOWN_TIMEOUT_SECONDS = 20;
-  // private static final long LOAD_MODEL_TIMEOUT_SECONDS = 60; // Can add if needed
   // ----------------
 
   // --- Filament Core Objects ---
@@ -156,6 +154,10 @@ public class HeadlessRenderer {
   private final AtomicBoolean mIsInitialized = new AtomicBoolean(false);
   private final AtomicBoolean mIsCleanedUp = new AtomicBoolean(false);
 
+  // 降级为包级私有
+  boolean isRenderExecutorAvailable() {
+    return mRenderExecutor != null && !mRenderExecutor.isShutdown();
+  }
 
   private boolean initFilamentCore() {
     Filament.init();
@@ -286,19 +288,25 @@ public class HeadlessRenderer {
    * Note: This return value does *not* guarantee the model loaded successfully,
    * as model loading happens asynchronously after initialization.
    */
-  public boolean init(@NonNull Context context) {
+  /**
+   * 异步初始化，包括创建渲染线程、Filament核心对象和加载初始模型。
+   * @param context Android context
+   * @return CompletableFuture<Void>，初始化完成时完成，异常时 completeExceptionally
+   */
+  @NonNull
+  public CompletableFuture<Void> init(@NonNull Context context) {
+    CompletableFuture<Void> initFuture = new CompletableFuture<>();
     if (mIsInitialized.get()) {
       Log.w(TAG, "Already initialized.");
-      return true;
+      initFuture.complete(null);
+      return initFuture;
     }
     if (mIsCleanedUp.get()) {
       Log.e(TAG, "Cannot initialize after cleanup.");
-      return false;
+      initFuture.completeExceptionally(new IllegalStateException("Cannot initialize after cleanup."));
+      return initFuture;
     }
-
-    // 可选：存储 context 以便后续使用
     mApplicationContext = context.getApplicationContext();
-
     Log.i(TAG, "Initializing HeadlessRenderer...");
 
     try {
@@ -306,48 +314,46 @@ public class HeadlessRenderer {
         mRenderExecutor = Executors.newSingleThreadExecutor(r -> new Thread(r, "FilamentRenderThread"));
         Log.i(TAG, "Render executor created.");
       }
-
-      Callable<Boolean> initTask = () -> {
-        Log.i(TAG, "Executing initialization task on render thread...");
+      mRenderExecutor.submit(() -> {
         try {
-          if (mIsInitialized.get()) return true; // Re-check inside task
-          return initFilamentCore();// Core initialization successful
+          if (!initFilamentCore()) {
+            initFuture.completeExceptionally(new RuntimeException("Filament core initialization failed."));
+            return;
+          }
+          // 加载模型并串联 viewport 调整
+          loadModel(context, "man1.glb")
+            .thenCompose(modelLoaded -> {
+              if (modelLoaded) {
+                return updateViewPortAsync(headMeshName, 5.0f);
+              } else {
+                CompletableFuture<Void> fail = new CompletableFuture<>();
+                fail.completeExceptionally(new RuntimeException("Initial model loading failed."));
+                return fail;
+              }
+            })
+            .thenRun(() -> {
+              mIsInitialized.set(true);
+              Log.i(TAG, "HeadlessRenderer initialization and initial model load successful.");
+              initFuture.complete(null);
+            })
+            .exceptionally(ex -> {
+              Log.e(TAG, "Initial model load or viewport adjustment failed.", ex);
+              cleanupFilamentResourcesInternal();
+              initFuture.completeExceptionally(ex);
+              return null;
+            });
         } catch (Exception e) {
           Log.e(TAG, "Exception during initialization task on render thread: ", e);
-          cleanupFilamentResourcesInternal(); // Attempt cleanup on the same thread
-          return false;
+          cleanupFilamentResourcesInternal();
+          initFuture.completeExceptionally(e);
         }
-      };
-
-      Log.i(TAG, "Submitting initialization task to render thread...");
-      Future<Boolean> initFuture = mRenderExecutor.submit(initTask);
-      boolean success = initFuture.get(INIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-
-      if (success) {
-        mIsInitialized.set(true);
-        Log.i(TAG, "HeadlessRenderer core initialization successful (waited).");
-        initLoadModel(context); // Load model after core init
-        return true; // Return true for successful core init
-      } else {
-        Log.e(TAG, "HeadlessRenderer initialization failed on render thread (waited).");
-        shutdownExecutorService(); // Clean up executor if task failed
-        return false;
-      }
-    } catch (ExecutionException e) {
-      Log.e(TAG, "ExecutionException during initialization: ", e.getCause());
-      shutdownExecutorService();
-      return false;
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-      Log.e(TAG, "Initialization interrupted: ", e);
-      shutdownExecutorService();
-      return false;
-    } catch (Exception e) { // Catches TimeoutException and others
-      Log.e(TAG, "Exception during initialization (e.g., timeout): ", e);
-      shutdownExecutorService();
-      return false;
+      });
+    } catch (Exception e) {
+      Log.e(TAG, "Exception during initialization (thread submit): ", e);
+      cleanupFilamentResourcesInternal();
+      initFuture.completeExceptionally(e);
     }
-    // 移除 finally 块（原本为空）
+    return initFuture;
   }
 
   /**
@@ -356,8 +362,9 @@ public class HeadlessRenderer {
    *
    * @param result FaceLandmarkerResult
    */
+  // 降级为包级私有
   @NonNull
-  public CompletableFuture<Void> applyLandmarkResult(@Nullable FaceLandmarkerResult result) {
+  CompletableFuture<Void> applyLandmarkResult(@Nullable FaceLandmarkerResult result) {
     CompletableFuture<Void> future = new CompletableFuture<>();
 
     if (mIsCleanedUp.get()) {
@@ -464,6 +471,41 @@ public class HeadlessRenderer {
     });
 
     return future;
+  }
+
+
+  /**
+   * 应用 MediaPipe 的 landmark 结果并渲染，返回渲染后的 Bitmap。
+   * @param result FaceLandmarkerResult
+   * @return CompletableFuture<Bitmap>
+   */
+  @NonNull
+  public CompletableFuture<Bitmap> applyLandmarkResultAndRender(@Nullable FaceLandmarkerResult result) {
+    if (mIsCleanedUp.get()) {
+      CompletableFuture<Bitmap> failedFuture = new CompletableFuture<>();
+      failedFuture.completeExceptionally(new IllegalStateException("Renderer is cleaned up."));
+      return failedFuture;
+    }
+    if (!mIsInitialized.get()) {
+      CompletableFuture<Bitmap> failedFuture = new CompletableFuture<>();
+      failedFuture.completeExceptionally(new IllegalStateException("Renderer not initialized."));
+      return failedFuture;
+    }
+    if (mRenderExecutor == null || mRenderExecutor.isShutdown()) {
+      CompletableFuture<Bitmap> failedFuture = new CompletableFuture<>();
+      failedFuture.completeExceptionally(new IllegalStateException("Render executor not available."));
+      return failedFuture;
+    }
+    // 先应用 landmark，再渲染
+    return applyLandmarkResult(result)
+      .thenComposeAsync(aVoid -> {
+        Log.d(TAG, "Landmark application complete, proceeding to render.");
+        return render();
+      }, mRenderExecutor)
+      .exceptionally(ex -> {
+        Log.e(TAG, "Error in applyLandmarkResultAndRender chain", ex);
+        throw new RuntimeException(ex);
+      });
   }
 
   /**
@@ -623,7 +665,8 @@ public class HeadlessRenderer {
    * @return A CompletableFuture that completes with true if loading was successful, false otherwise.
    */
   @NonNull
-  public CompletableFuture<Boolean> loadModel(@NonNull Context context, @NonNull String assetPath) {
+  // 降级为包级私有
+  CompletableFuture<Boolean> loadModel(@NonNull Context context, @NonNull String assetPath) {
     Log.i(TAG, "loadModel called for asset: " + assetPath);
     CompletableFuture<Boolean> loadFuture = new CompletableFuture<>();
 
@@ -855,7 +898,8 @@ public class HeadlessRenderer {
   }
 
   @NonNull
-  public CompletableFuture<Bitmap> render() {
+  // 降级为包级私有
+  CompletableFuture<Bitmap> render() {
     // ... (render method remains largely the same as the fixed version from the previous turn) ...
     Log.d(TAG, "render() called.");
     CompletableFuture<Bitmap> resultFuture = new CompletableFuture<>();
@@ -1088,7 +1132,8 @@ public class HeadlessRenderer {
    * @return 操作完成时完成的 CompletableFuture
    */
   @NonNull
-  public CompletableFuture<Void> updateViewPortAsync(@Nullable String entityName, float scaleFactor) {
+  // 降级为包级私有
+  CompletableFuture<Void> updateViewPortAsync(@Nullable String entityName, float scaleFactor) {
     CompletableFuture<Void> future = new CompletableFuture<>();
     if (mIsCleanedUp.get()) {
       future.completeExceptionally(new IllegalStateException("Renderer is cleaned up."));
@@ -1187,15 +1232,118 @@ public class HeadlessRenderer {
   }
 
 
-  public void cleanup() {
-    // ... (Cleanup logic remains the same, including calling shutdownExecutorService) ...
+  /**
+   * 异步释放所有资源，关闭渲染线程。
+   * @return CompletableFuture<Void>，资源释放完成时完成
+   */
+  @NonNull
+  public CompletableFuture<Void> release() {
+    CompletableFuture<Void> releaseFuture = new CompletableFuture<>();
     if (mIsCleanedUp.compareAndSet(false, true)) {
-      Log.i(TAG, "cleanup() called. Initiating shutdown...");
-      cleanupInternal();
-      Log.i(TAG, "Cleanup process finished.");
+      Log.i(TAG, "release() called. Initiating shutdown...");
+      mIsInitialized.set(false);
+      mMainThreadHandler.removeCallbacksAndMessages(null);
+      ExecutorService executor = mRenderExecutor;
+      mRenderExecutor = null;
+      if (executor != null && !executor.isShutdown()) {
+        Log.i(TAG, "Submitting final resource cleanup task to render thread...");
+        executor.submit(() -> {
+          try {
+            cleanupFilamentResourcesInternal();
+            Log.i(TAG, "Filament resource cleanup task completed on render thread.");
+            executor.shutdown();
+            if (!executor.awaitTermination(SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+              Log.e(TAG, "Render executor did not terminate gracefully. Forcing shutdown...");
+              executor.shutdownNow();
+              if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                Log.e(TAG, "Render executor did not terminate even after shutdownNow().");
+                releaseFuture.completeExceptionally(new RuntimeException("Executor failed to terminate."));
+                return;
+              }
+            }
+            Log.i(TAG, "Render executor terminated.");
+            // Nullify references
+            mRenderer = null;
+            mSwapChain = null;
+            mView = null;
+            mScene = null;
+            mCamera = null;
+            mSkybox = null;
+            mAssetLoader = null;
+            mResourceLoader = null;
+            mCurrentAsset = null;
+            mAssetEntities = null;
+            mEngine = null;
+            releaseFuture.complete(null);
+          } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            Log.e(TAG, "Interrupted during executor shutdown or cleanup.", ie);
+            executor.shutdownNow();
+            mRenderer = null;
+            mSwapChain = null;
+            mView = null;
+            mScene = null;
+            mCamera = null;
+            mSkybox = null;
+            mAssetLoader = null;
+            mResourceLoader = null;
+            mCurrentAsset = null;
+            mAssetEntities = null;
+            mEngine = null;
+            releaseFuture.completeExceptionally(ie);
+          } catch (Exception e) {
+            Log.e(TAG, "Exception during resource cleanup or executor shutdown.", e);
+            mRenderer = null;
+            mSwapChain = null;
+            mView = null;
+            mScene = null;
+            mCamera = null;
+            mSkybox = null;
+            mAssetLoader = null;
+            mResourceLoader = null;
+            mCurrentAsset = null;
+            mAssetEntities = null;
+            mEngine = null;
+            releaseFuture.completeExceptionally(e);
+          }
+        });
+      } else {
+        Log.w(TAG, "Render executor was null or already shutdown. Performing direct cleanup if possible...");
+        try {
+          cleanupFilamentResourcesInternal();
+          mRenderer = null;
+          mSwapChain = null;
+          mView = null;
+          mScene = null;
+          mCamera = null;
+          mSkybox = null;
+          mAssetLoader = null;
+          mResourceLoader = null;
+          mCurrentAsset = null;
+          mAssetEntities = null;
+          mEngine = null;
+          releaseFuture.complete(null);
+        } catch (Exception e) {
+          Log.e(TAG, "Exception during direct cleanup.", e);
+          mRenderer = null;
+          mSwapChain = null;
+          mView = null;
+          mScene = null;
+          mCamera = null;
+          mSkybox = null;
+          mAssetLoader = null;
+          mResourceLoader = null;
+          mCurrentAsset = null;
+          mAssetEntities = null;
+          mEngine = null;
+          releaseFuture.completeExceptionally(e);
+        }
+      }
     } else {
-      Log.w(TAG, "cleanup() called, but already cleaned up or cleanup in progress.");
+      Log.w(TAG, "release() called, but already cleaned up or cleanup in progress.");
+      releaseFuture.complete(null);
     }
+    return releaseFuture;
   }
 
   /**
@@ -1208,7 +1356,8 @@ public class HeadlessRenderer {
    * @return CompletableFuture<Boolean>，表示操作是否成功
    */
   @NonNull
-  public CompletableFuture<Boolean> rotate(@NonNull String entityName, float x, float y, float z) {
+  // 降级为包级私有
+  CompletableFuture<Boolean> rotate(@NonNull String entityName, float x, float y, float z) {
     CompletableFuture<Boolean> resultFuture = new CompletableFuture<>();
 
     if (mIsCleanedUp.get()) {

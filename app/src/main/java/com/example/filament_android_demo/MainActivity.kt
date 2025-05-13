@@ -193,6 +193,7 @@ fun MainScreen(
   modifier: Modifier = Modifier,
   renderer: ModelRender,
   isRendererReady: Boolean,
+  mediaPipeProcessor: MediaPipeProcessor, // 新增参数
   onCheckCameraPermission: () -> Unit,
   landmarkResult: FaceLandmarkerResult?,
   imageWidth: Int,
@@ -276,6 +277,7 @@ fun MainScreen(
       if (hasCameraPermission) {
         CameraPreviewWithLandmarks(
           modifier = Modifier.fillMaxSize(),
+          mediaPipeProcessor = mediaPipeProcessor, // 新增参数
           landmarkResult = landmarkResult,
           imageWidth = imageWidth,
           imageHeight = imageHeight,
@@ -408,6 +410,7 @@ fun MainScreen(
 @Composable
 fun CameraPreviewWithLandmarks(
   modifier: Modifier = Modifier,
+  mediaPipeProcessor: MediaPipeProcessor,
   landmarkResult: FaceLandmarkerResult?,
   imageWidth: Int,
   imageHeight: Int,
@@ -416,7 +419,6 @@ fun CameraPreviewWithLandmarks(
 ) {
   val lifecycleOwner = LocalLifecycleOwner.current
   val context = LocalContext.current
-  val mainActivity = context as? MainActivity
 
   var localPreviewView: PreviewView? by remember { mutableStateOf(null) }
   var overlayWidth by remember { mutableStateOf(1) }
@@ -445,17 +447,13 @@ fun CameraPreviewWithLandmarks(
       modifier = Modifier.fillMaxSize()
     )
 
-    LaunchedEffect(mainActivity, localPreviewView, mainActivity?.preview) {
-      val cameraPreviewUseCase = mainActivity?.preview
+    LaunchedEffect(mediaPipeProcessor, localPreviewView) {
       val pv = localPreviewView
-      if (cameraPreviewUseCase != null && pv != null) {
-        cameraPreviewUseCase.setSurfaceProvider(pv.surfaceProvider)
-        Log.d("CameraPreviewWithLandmarks", "SurfaceProvider SET successfully.")
+      if (pv != null) {
+        mediaPipeProcessor.setPreviewSurfaceProvider(pv.surfaceProvider)
+        Log.d("CameraPreviewWithLandmarks", "SurfaceProvider SET successfully via MediaPipeProcessor.")
       } else {
-        Log.d(
-          "CameraPreviewWithLandmarks",
-          "SurfaceProvider NOT set: mainActivity.preview is ${mainActivity?.preview}, localPreviewView is $pv"
-        )
+        Log.d("CameraPreviewWithLandmarks", "SurfaceProvider NOT set: localPreviewView is null")
       }
     }
 

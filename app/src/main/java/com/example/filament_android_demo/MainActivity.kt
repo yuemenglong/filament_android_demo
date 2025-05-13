@@ -46,6 +46,19 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlin.math.max
 
+/*
+* TODO
+* 将所有Mediapipe相关的操作封装到一个类中，类名为MediaPipeProcessor
+* 暴露如下方法：
+* 1. init，加载模型，与camera连接,启动检查，总之完成一切需要的准备工作，后续就要出结果了
+* 2. setOnResult，设置回调，当拿到FaceLandmarkerResult时调用，传入Consumer<FaceLandmarkerResult>
+* 3. setOnError，设置错误回调,可以为空，默认打一个日志
+* 4. release,释放资源
+* 注意，其余的部分都封装在其内部，不暴露出来，同时修改这个类，适配新的类
+* 注意，虽然代码重构，但是功能不变
+* */
+
+
 class MainActivity : ComponentActivity(), FaceLandmarkerHelper.LandmarkerListener {
   private lateinit var modelRender: ModelRender
   private var isRendererInitialized by mutableStateOf(false)

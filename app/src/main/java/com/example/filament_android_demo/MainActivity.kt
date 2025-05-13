@@ -141,6 +141,7 @@ class MainActivity : ComponentActivity() {
             modifier = Modifier.padding(innerPadding),
             renderer = modelRender,
             isRendererReady = isRendererInitialized,
+            mediaPipeProcessor = mediaPipeProcessor,
             onCheckCameraPermission = { checkCameraPermission() },
             landmarkResult = landmarkResult.value,
             imageWidth = imageWidth.value,

@@ -6,6 +6,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarkerResult
 import kotlin.math.max
 import android.graphics.Bitmap
+import android.util.Log
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -135,6 +136,7 @@ fun DrawScope.draw3DOverlayToCanvas(
   } else {
     0.0f
   }
+  Log.d("TAG", "yaw: $yaw")
 
   val scaleFactor = max(canvasWidth / imageWidth, canvasHeight / imageHeight)
   val scaledImageWidth = imageWidth * scaleFactor
@@ -167,11 +169,17 @@ fun DrawScope.draw3DOverlayToCanvas(
       val faceCenterY = faceRectTop + (faceRectBottom - faceRectTop) / 2f
 
       val overlayTargetWidth = faceWidthOnCanvas * overlayScaleRelativeToFace
+
+      // 横向位置补偿参数
+      val K_yaw_offset = 0.35f // 可根据实际效果调整，建议范围 0.2~0.5
+      val horizontalOffset = -yaw * K_yaw_offset * faceWidthOnCanvas
+
       val bitmapAspectRatio =
         if (overlayBitmap.height > 0) overlayBitmap.width.toFloat() / overlayBitmap.height.toFloat() else 1f
       val overlayTargetHeight = overlayTargetWidth / bitmapAspectRatio
 
-      val destLeft = (faceCenterX - overlayTargetWidth / 2f).toInt()
+      // 应用横向补偿
+      val destLeft = (faceCenterX - overlayTargetWidth / 2f + horizontalOffset).toInt()
       val destTop = (faceCenterY - overlayTargetHeight / 2f).toInt()
 
       val imageBitmapToDraw = overlayBitmap.asImageBitmap()

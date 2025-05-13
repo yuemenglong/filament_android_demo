@@ -100,7 +100,7 @@ public class ModelRender {
   // 可选：存储 ApplicationContext 以便后续使用
   private volatile Context mApplicationContext;
 
-  private static final String TAG = "ModelRender";
+  private static final String TAG = "ModelRender_Debug";
   // Positive value shifts model visually downwards. Tune as needed.
   public static final String headMeshName = "Wolf3D_Head";
   public static final String headName = "Head";
@@ -160,14 +160,27 @@ public class ModelRender {
   }
 
   private boolean initFilamentCore() {
-    Filament.init();
-    Utils.INSTANCE.init();
-    mEngine = Engine.create();
-    if (mEngine == null) { // Check and log here
-      Log.e(TAG, "Failed to create Filament Engine.");
+    Log.i(TAG, "initFilamentCore: START");
+    try {
+      Log.d(TAG, "initFilamentCore: Calling Filament.init()");
+      Filament.init();
+      Log.d(TAG, "initFilamentCore: Filament.init() DONE.");
+
+      Log.d(TAG, "initFilamentCore: Calling Utils.INSTANCE.init()");
+      Utils.INSTANCE.init();
+      Log.d(TAG, "initFilamentCore: Utils.INSTANCE.init() DONE.");
+
+      Log.d(TAG, "initFilamentCore: Calling Engine.create()");
+      mEngine = Engine.create();
+      if (mEngine == null) {
+        Log.e(TAG, "initFilamentCore: Failed to create Filament Engine.");
+        return false;
+      }
+      Log.i(TAG, "initFilamentCore: Filament engine CREATED (Backend: " + mEngine.getBackend() + ")");
+    } catch (Throwable t) {
+      Log.e(TAG, "initFilamentCore: THROWABLE during core initialization.", t);
       return false;
     }
-    Log.i(TAG, "Filament engine created (Backend: " + mEngine.getBackend() + ")");
 
     // Use gltfio's MaterialProvider
     MaterialProvider materialProvider = new UbershaderProvider(mEngine);
@@ -296,6 +309,8 @@ public class ModelRender {
   @NonNull
   public CompletableFuture<Void> init(@NonNull Context context) {
     CompletableFuture<Void> initFuture = new CompletableFuture<>();
+    Log.i(TAG, "init() called. mIsInitialized: " + mIsInitialized.get() + ", mIsCleanedUp: " + mIsCleanedUp.get());
+
     if (mIsInitialized.get()) {
       Log.w(TAG, "Already initialized.");
       initFuture.complete(null);
@@ -307,25 +322,35 @@ public class ModelRender {
       return initFuture;
     }
     mApplicationContext = context.getApplicationContext();
-    Log.i(TAG, "Initializing HeadlessRenderer...");
+    Log.i(TAG, "Initializing ModelRender...");
 
     try {
       if (mRenderExecutor == null || mRenderExecutor.isShutdown()) {
         mRenderExecutor = Executors.newSingleThreadExecutor(r -> new Thread(r, "FilamentRenderThread"));
-        Log.i(TAG, "Render executor created.");
+        Log.i(TAG, "Render executor CREATED.");
+      } else {
+        Log.i(TAG, "Render executor ALREADY EXISTS.");
       }
+
       mRenderExecutor.submit(() -> {
+        Log.i(TAG, "Render thread: Task STARTED.");
         try {
+          Log.i(TAG, "Render thread: Calling initFilamentCore().");
           if (!initFilamentCore()) {
+            Log.e(TAG, "Render thread: initFilamentCore() FAILED.");
             initFuture.completeExceptionally(new RuntimeException("Filament core initialization failed."));
             return;
           }
-          // 加载模型并串联 viewport 调整
+          Log.i(TAG, "Render thread: initFilamentCore() SUCCEEDED.");
+
+          Log.i(TAG, "Render thread: Calling loadModel().");
           loadModel(context, "man1.glb")
             .thenCompose(modelLoaded -> {
               if (modelLoaded) {
+                Log.i(TAG, "Render thread: loadModel() SUCCEEDED. Calling updateViewPortAsync().");
                 return updateViewPortAsync(headMeshName, 5.0f);
               } else {
+                Log.e(TAG, "Render thread: loadModel() FAILED.");
                 CompletableFuture<Void> fail = new CompletableFuture<>();
                 fail.completeExceptionally(new RuntimeException("Initial model loading failed."));
                 return fail;
@@ -333,26 +358,28 @@ public class ModelRender {
             })
             .thenRun(() -> {
               mIsInitialized.set(true);
-              Log.i(TAG, "HeadlessRenderer initialization and initial model load successful.");
+              Log.i(TAG, "Render thread: Initialization and initial model load SUCCESSFUL. Completing future.");
               initFuture.complete(null);
             })
             .exceptionally(ex -> {
-              Log.e(TAG, "Initial model load or viewport adjustment failed.", ex);
+              Log.e(TAG, "Render thread: EXCEPTION in loadModel/updateViewPort chain.", ex);
               cleanupFilamentResourcesInternal();
               initFuture.completeExceptionally(ex);
               return null;
             });
-        } catch (Exception e) {
-          Log.e(TAG, "Exception during initialization task on render thread: ", e);
+        } catch (Throwable t) {
+          Log.e(TAG, "Render thread: Uncaught THROWABLE during initialization task.", t);
           cleanupFilamentResourcesInternal();
-          initFuture.completeExceptionally(e);
+          initFuture.completeExceptionally(t);
         }
+        Log.i(TAG, "Render thread: Task SUBMITTED part finished (async operations may still be running).");
       });
     } catch (Exception e) {
-      Log.e(TAG, "Exception during initialization (thread submit): ", e);
+      Log.e(TAG, "Exception during init (e.g., thread submission).", e);
       cleanupFilamentResourcesInternal();
       initFuture.completeExceptionally(e);
     }
+    Log.i(TAG, "init() method returning future.");
     return initFuture;
   }
 
@@ -667,45 +694,43 @@ public class ModelRender {
   @NonNull
   // 降级为包级私有
   CompletableFuture<Boolean> loadModel(@NonNull Context context, @NonNull String assetPath) {
-    Log.i(TAG, "loadModel called for asset: " + assetPath);
+    Log.i(TAG, "loadModel: START for asset: " + assetPath);
     CompletableFuture<Boolean> loadFuture = new CompletableFuture<>();
 
-    if (mIsCleanedUp.get()) { /* complete exceptionally */
+    if (mIsCleanedUp.get()) {
+      Log.e(TAG, "loadModel: Renderer is cleaned up, aborting.");
+      loadFuture.completeExceptionally(new IllegalStateException("Renderer is cleaned up."));
       return loadFuture;
     }
-    if (!mIsInitialized.get()) { /* complete exceptionally */
+    if (!mIsInitialized.get()) {
+      Log.e(TAG, "loadModel: Renderer not initialized, aborting.");
+      loadFuture.completeExceptionally(new IllegalStateException("Renderer not initialized."));
       return loadFuture;
     }
-    if (mRenderExecutor == null || mRenderExecutor.isShutdown()) { /* complete exceptionally */
+    if (mRenderExecutor == null || mRenderExecutor.isShutdown()) {
+      Log.e(TAG, "loadModel: Render executor not available, aborting.");
+      loadFuture.completeExceptionally(new IllegalStateException("Render executor not available."));
       return loadFuture;
     }
 
     mRenderExecutor.submit(() -> {
-      if (!mIsInitialized.get() || mIsCleanedUp.get()) {
-        Log.w(TAG, "Model loading task executing but renderer is no longer valid.");
-        loadFuture.complete(false);
-        return;
-      }
-
-      Log.i(TAG, "Executing model loading task on render thread for: " + assetPath);
+      Log.i(TAG, "loadModel render thread: Task STARTED for " + assetPath);
       boolean success = false;
 
       try {
         // --- Remove previous asset ---
         if (mCurrentAsset != null) {
-          // Ensure removal and destruction happen on the render thread
           if (mAssetEntities != null) {
-            Log.d(TAG, "Removing previous model entities from scene.");
+            Log.d(TAG, "loadModel render thread: Removing previous model entities from scene.");
             mScene.removeEntities(mAssetEntities);
           }
-          Log.d(TAG, "Destroying previous FilamentAsset.");
+          Log.d(TAG, "loadModel render thread: Destroying previous FilamentAsset.");
           mAssetLoader.destroyAsset(mCurrentAsset);
           mCurrentAsset = null;
           mAssetEntities = null;
         }
-        // 清空 morph target 信息
         mMorphTargetInfoMap.clear();
-        Log.d(TAG, "Cleared morph target info map for new model.");
+        Log.d(TAG, "loadModel render thread: Cleared morph target info map for new model.");
 
         // --- Read asset into ByteBuffer ---
         AssetManager assetManager = context.getAssets();
@@ -719,65 +744,66 @@ public class ModelRender {
             byteArrayOutputStream.write(buffer, 0, len);
           }
           byte[] bytes = byteArrayOutputStream.toByteArray();
-          byteBuffer = ByteBuffer.wrap(bytes); // Use wrap for direct memory access if possible
-          Log.d(TAG, "Read " + bytes.length + " bytes from asset: " + assetPath);
+          byteBuffer = ByteBuffer.wrap(bytes);
+          Log.d(TAG, "loadModel render thread: ByteBuffer READY for " + assetPath + ", bytes=" + bytes.length);
         } catch (IOException e) {
-          Log.e(TAG, "Failed to read asset: " + assetPath, e);
+          Log.e(TAG, "loadModel render thread: Failed to read asset: " + assetPath, e);
           loadFuture.completeExceptionally(e);
           return;
         }
 
         // --- Load GLTF Asset ---
         if (mAssetLoader == null || mResourceLoader == null) {
-          throw new IllegalStateException("AssetLoader/ResourceLoader is null. Initialization incomplete?");
+          Log.e(TAG, "loadModel render thread: AssetLoader/ResourceLoader is null. Initialization incomplete?");
+          loadFuture.completeExceptionally(new IllegalStateException("AssetLoader/ResourceLoader is null. Initialization incomplete?"));
+          return;
         }
 
-        // Use createAsset (not createAssetFromBinary)
+        Log.d(TAG, "loadModel render thread: Calling mAssetLoader.createAsset() for " + assetPath);
         FilamentAsset newAsset = mAssetLoader.createAsset(byteBuffer);
         if (newAsset == null) {
-          Log.e(TAG, "Failed to load asset: " + assetPath + ". createAsset returned null.");
+          Log.e(TAG, "loadModel render thread: Failed to load asset: " + assetPath + ". createAsset returned null.");
           loadFuture.complete(false);
           return;
         }
-        Log.i(TAG, "Asset created: " + assetPath);
+        Log.d(TAG, "loadModel render thread: mAssetLoader.createAsset() DONE for " + assetPath);
+        Log.i(TAG, "loadModel render thread: Asset created: " + assetPath);
         mCurrentAsset = newAsset;
 
         // --- Load Resources (Textures, etc.) ---
-        // For self-contained GLB or glTF with embedded data, ResourceLoader handles it.
-        // For external resources, they *must* have been added via addResourceData before this point.
-        Log.d(TAG, "Loading resources for asset...");
-        mResourceLoader.loadResources(newAsset); // Synchronous loading on this thread
-        newAsset.releaseSourceData(); // Release original glTF buffer data after loading
-        Log.i(TAG, "Resources loaded for asset: " + assetPath);
+        Log.d(TAG, "loadModel render thread: Calling mResourceLoader.loadResources() for " + assetPath);
+        mResourceLoader.loadResources(newAsset);
+        newAsset.releaseSourceData();
+        Log.d(TAG, "loadModel render thread: mResourceLoader.loadResources() DONE for " + assetPath);
+        Log.i(TAG, "loadModel render thread: Resources loaded for asset: " + assetPath);
 
         // --- Add to Scene ---
         mAssetEntities = newAsset.getEntities();
         mScene.addEntities(mAssetEntities);
-        Log.i(TAG, "Added " + mAssetEntities.length + " entities to the scene.");
+        Log.i(TAG, "loadModel render thread: Added " + mAssetEntities.length + " entities to the scene.");
 
         // ***** 新增：隐藏非头部相关的实体 START *****
         if (mAssetEntities != null && mAssetEntities.length > 0) {
           RenderableManager rm = mEngine.getRenderableManager();
           List<Integer> entitiesToRemoveFromScene = new ArrayList<>();
 
-          Log.i(TAG, "--- Filtering entities for visibility ---");
+          Log.i(TAG, "loadModel render thread: --- Filtering entities for visibility ---");
           for (int entityId : mAssetEntities) {
             String entityName = newAsset.getName(entityId);
 
-            // 只处理有名称且是可渲染实体的部分
             if (entityName != null && !entityName.isEmpty() && rm.hasComponent(entityId)) {
               if (!ENTITY_NAMES_TO_KEEP_VISIBLE.contains(entityName)) {
-                Log.d(TAG, "Marking entity for hiding: '" + entityName + "' (ID: " + entityId + ")");
+                Log.d(TAG, "loadModel render thread: Marking entity for hiding: '" + entityName + "' (ID: " + entityId + ")");
                 entitiesToRemoveFromScene.add(entityId);
               } else {
-                Log.d(TAG, "Keeping entity visible: '" + entityName + "' (ID: " + entityId + ")");
+                Log.d(TAG, "loadModel render thread: Keeping entity visible: '" + entityName + "' (ID: " + entityId + ")");
               }
             }
           }
 
           if (!entitiesToRemoveFromScene.isEmpty()) {
             mScene.removeEntities(entitiesToRemoveFromScene.stream().mapToInt(i -> i).toArray());
-            Log.i(TAG, "Hid " + entitiesToRemoveFromScene.size() + " entities by removing them from the scene.");
+            Log.i(TAG, "loadModel render thread: Hid " + entitiesToRemoveFromScene.size() + " entities by removing them from the scene.");
           }
         }
         // ***** 新增：隐藏非头部相关的实体 END *****
@@ -786,60 +812,49 @@ public class ModelRender {
         prepareMorphTargetInfoInternal();
         // *************************************
 
-
         // ***** MODIFICATION START: Record Entity Names and Transforms *****
-        // 在加载新模型前，清除旧模型的变换信息
         mEntityInitialTransforms.clear();
-        Log.d(TAG, "Cleared previous entity transform map.");
+        Log.d(TAG, "loadModel render thread: Cleared previous entity transform map.");
 
         if (mAssetEntities != null && mAssetEntities.length > 0) {
-          Log.i(TAG, "--- Processing Entities in Asset '" + assetPath + "' for Transform Map ---");
-          TransformManager tm = mEngine.getTransformManager(); // 获取 TransformManager
+          Log.i(TAG, "loadModel render thread: --- Processing Entities in Asset '" + assetPath + "' for Transform Map ---");
+          TransformManager tm = mEngine.getTransformManager();
 
           for (int entityId : mAssetEntities) {
             String entityName = newAsset.getName(entityId);
 
-            // 只处理有名称的实体
             if (entityName != null && !entityName.isEmpty()) {
-              // 检查实体是否有 Transform 组件
               if (tm.hasComponent(entityId)) {
                 int instance = tm.getInstance(entityId);
-                float[] transformMatrix = new float[16]; // 分配空间存储 4x4 矩阵
-                tm.getTransform(instance, transformMatrix); // 获取世界变换矩阵
+                float[] transformMatrix = new float[16];
+                tm.getTransform(instance, transformMatrix);
 
-                // 存储名称和变换矩阵到 Map 中
                 mEntityInitialTransforms.put(entityName, transformMatrix);
-                Log.i(TAG, "Stored transform for Entity ID: " + entityId + ", Name: '" + entityName + "'");
-                // 可以选择性打印矩阵内容进行调试:
-                // Log.d(TAG, "  Transform: " + Arrays.toString(transformMatrix));
+                Log.i(TAG, "loadModel render thread: Stored transform for Entity ID: " + entityId + ", Name: '" + entityName + "'");
               } else {
-                Log.w(TAG, "Entity ID: " + entityId + ", Name: '" + entityName + "' has a name but no Transform component. Skipping transform storage.");
+                Log.w(TAG, "loadModel render thread: Entity ID: " + entityId + ", Name: '" + entityName + "' has a name but no Transform component. Skipping transform storage.");
               }
             } else {
-              // 可选：记录没有名称的实体ID
-              Log.d(TAG, "Entity ID: " + entityId + " has no specific name in the glTF asset. Skipping transform storage.");
+              Log.d(TAG, "loadModel render thread: Entity ID: " + entityId + " has no specific name in the glTF asset. Skipping transform storage.");
             }
           }
-          Log.i(TAG, "--- Finished Processing Entities for Transform Map ---");
+          Log.i(TAG, "loadModel render thread: --- Finished Processing Entities for Transform Map ---");
         } else {
-          Log.w(TAG, "Asset '" + assetPath + "' loaded but reported 0 entities.");
+          Log.w(TAG, "loadModel render thread: Asset '" + assetPath + "' loaded but reported 0 entities.");
         }
         // ***** MODIFICATION END: Record Entity Names and Transforms *****
 
         // --- Manual Transform to Unit Cube ---
-        // The helper newAsset.transformToUnitCube(...) doesn't exist in 1.57.1
         TransformManager tm = mEngine.getTransformManager();
         int rootEntity = newAsset.getRoot();
         if (tm.hasComponent(rootEntity)) {
           int rootInstance = tm.getInstance(rootEntity);
           Box aabb = newAsset.getBoundingBox();
-          float[] center = aabb.getCenter(); // float[3]
-          float[] halfExtent = aabb.getHalfExtent(); // float[3]
+          float[] center = aabb.getCenter();
+          float[] halfExtent = aabb.getHalfExtent();
 
           float maxExtent = Math.max(halfExtent[0], Math.max(halfExtent[1], halfExtent[2]));
-          // Avoid division by zero for empty or invalid boxes
           float scaleFactor = (maxExtent > 1e-6f) ? (1.0f / (maxExtent * 2.0f)) : 1.0f;
-          // Center the model at the origin after scaling
           float tx = -center[0] * scaleFactor;
           float ty = -center[1] * scaleFactor;
           float tz = -center[2] * scaleFactor;
@@ -854,46 +869,41 @@ public class ModelRender {
           Matrix.setIdentityM(translationMatrix, 0);
           Matrix.translateM(translationMatrix, 0, tx, ty, tz);
 
-          // The transformation order should be: scale first, then translate.
-          // Matrix multiplication order is result = translation * scale
           Matrix.multiplyMM(finalTransform, 0, translationMatrix, 0, scaleMatrix, 0);
 
           tm.setTransform(rootInstance, finalTransform);
-          Log.d(TAG, "Manually transformed asset to unit cube at origin. Scale: " + scaleFactor);
+          Log.d(TAG, "loadModel render thread: Manually transformed asset to unit cube at origin. Scale: " + scaleFactor);
         } else {
-          Log.w(TAG, "Asset root entity " + rootEntity + " does not have a transform component.");
+          Log.w(TAG, "loadModel render thread: Asset root entity " + rootEntity + " does not have a transform component.");
         }
-
 
         success = true;
 
-      } catch (Exception e) {
-        Log.e(TAG, "Exception during model loading task: ", e);
-        // Cleanup partially loaded asset if necessary
+      } catch (Throwable t) {
+        Log.e(TAG, "loadModel render thread: THROWABLE during model loading for " + assetPath, t);
         if (mCurrentAsset != null && mAssetLoader != null) {
           try {
             mAssetLoader.destroyAsset(mCurrentAsset);
           } catch (Exception cleanupEx) {
-            Log.e(TAG, "Exception during asset cleanup: ", cleanupEx);
+            Log.e(TAG, "loadModel render thread: Exception during asset cleanup: ", cleanupEx);
           }
           mCurrentAsset = null;
           mAssetEntities = null;
         }
-        loadFuture.completeExceptionally(e);
+        loadFuture.completeExceptionally(t);
       } finally {
-        // mResourceLoader itself is not destroyed here, only per-load resources if needed
         if (success) {
-          Log.i(TAG, "Model loading task completed successfully for: " + assetPath);
+          Log.i(TAG, "loadModel render thread: Model loading task COMPLETED SUCCESSFULLY for: " + assetPath);
           loadFuture.complete(true);
         } else if (!loadFuture.isDone()) {
-          Log.e(TAG, "Model loading task failed for: " + assetPath);
+          Log.e(TAG, "loadModel render thread: Model loading task FAILED for: " + assetPath);
           loadFuture.complete(false);
         }
-        Log.i(TAG, "Model loading task finished execution on render thread.");
+        Log.i(TAG, "loadModel render thread: Task ENDED for " + assetPath);
       }
     });
 
-    Log.d(TAG, "loadModel returning future immediately.");
+    Log.i(TAG, "loadModel: END for asset: " + assetPath + " (returning future)");
     return loadFuture;
   }
 

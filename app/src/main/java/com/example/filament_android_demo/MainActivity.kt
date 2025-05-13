@@ -21,6 +21,7 @@ import androidx.camera.core.ImageAnalysis
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Canvas
+import com.example.filament_android_demo.drawFaceLandmarksToCanvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -461,45 +462,11 @@ fun CameraPreviewWithLandmarks(
     Canvas(modifier = Modifier.fillMaxSize()) {
       if (scaleFactor <= 0f || imageWidth <= 0 || imageHeight <= 0) return@Canvas
 
-      landmarkResult?.let { result ->
-        result.faceLandmarks().forEach { landmarks ->
-          com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarker.FACE_LANDMARKS_CONNECTORS.forEach { connector ->
-            val startIdx = connector.start()
-            val endIdx = connector.end()
-            if (startIdx >= 0 && startIdx < landmarks.size && endIdx >= 0 && endIdx < landmarks.size) {
-              val start = landmarks[startIdx]
-              val end = landmarks[endIdx]
-              val scaledImageWidth = imageWidth * scaleFactor
-              val scaledImageHeight = imageHeight * scaleFactor
-              val offsetX = (size.width - scaledImageWidth) / 2f
-              val offsetY = (size.height - scaledImageHeight) / 2f
-              val startX = start.x() * scaledImageWidth + offsetX
-              val startY = start.y() * scaledImageHeight + offsetY
-              val endX = end.x() * scaledImageWidth + offsetX
-              val endY = end.y() * scaledImageHeight + offsetY
-              drawLine(
-                color = Color.Green,
-                start = Offset(startX, startY),
-                end = Offset(endX, endY),
-                strokeWidth = 4.0f
-              )
-            }
-          }
-          landmarks.forEach { landmark ->
-            val scaledImageWidth = imageWidth * scaleFactor
-            val scaledImageHeight = imageHeight * scaleFactor
-            val offsetX = (size.width - scaledImageWidth) / 2f
-            val offsetY = (size.height - scaledImageHeight) / 2f
-            val pointX = landmark.x() * scaledImageWidth + offsetX
-            val pointY = landmark.y() * scaledImageHeight + offsetY
-            drawCircle(
-              color = Color.Yellow,
-              radius = 6f,
-              center = Offset(pointX, pointY)
-            )
-          }
-        }
-      }
+      drawFaceLandmarksToCanvas(
+        landmarkResult = landmarkResult,
+        imageWidth = imageWidth,
+        imageHeight = imageHeight
+      )
       // Draw Overlay Bitmap
       if (overlayEnabled && overlayBitmap != null && landmarkResult != null && landmarkResult.faceLandmarks()
           .isNotEmpty()

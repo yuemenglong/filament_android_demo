@@ -10,6 +10,8 @@ import android.util.Log
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import kotlin.math.abs
+import kotlin.math.cos
 
 fun DrawScope.drawFaceLandmarksToCanvas(
   landmarkResult: FaceLandmarkerResult?,
@@ -112,6 +114,51 @@ private fun extractOffset(matrix: FloatArray): FloatArray {
   return floatArrayOf(matrix[12], matrix[13], matrix[14])
 }
 
+private fun fixFaceSize(
+  faceWidthOnCanvas: Double,
+  faceHeightOnCanvas: Double,
+  yaw: Double,          // 必须是弧度 (radians)
+  pitch: Double         // 必须是弧度 (radians)
+): Pair<Double, Double> {
+
+  // 当cos(angle)小于此值时，认为角度过大，修正可能不可靠。
+  // 0.1 大约对应于 acos(0.1) ≈ 1.4706 弧度 ≈ 84.26 度。
+  val MIN_COS_FACTOR = 0.1
+
+  // 1. 根据 Yaw 修正宽度
+  val absYaw = abs(yaw)
+  val cosYawFactor = cos(absYaw)
+
+  val faceWidthOnCanvasFixed: Double
+  if (cosYawFactor < MIN_COS_FACTOR) {
+    // 如果角度过大，cosYawFactor会很小，导致修正后的宽度异常大。
+    // 此处采用 MIN_COS_FACTOR 进行有限的最大修正。
+    // 另一种策略可能是直接返回原始宽度或标记为不可靠。
+    faceWidthOnCanvasFixed = faceWidthOnCanvas / MIN_COS_FACTOR
+    // 调试时可以取消注释以下行:
+    // println("警告: Yaw角度 (${Math.toDegrees(absYaw).toInt()} 度) 过大，宽度修正可能被限制。cosYawFactor: $cosYawFactor")
+  } else {
+    faceWidthOnCanvasFixed = faceWidthOnCanvas / cosYawFactor
+  }
+
+  // 2. 根据 Pitch 修正高度
+  val absPitch = abs(pitch)
+  val cosPitchFactor = cos(absPitch)
+
+  val faceHeightOnCanvasFixed: Double
+  if (cosPitchFactor < MIN_COS_FACTOR) {
+    // 同理，对高度进行有限的最大修正。
+    faceHeightOnCanvasFixed = faceHeightOnCanvas / MIN_COS_FACTOR
+    // 调试时可以取消注释以下行:
+    // println("警告: Pitch角度 (${Math.toDegrees(absPitch).toInt()} 度) 过大，高度修正可能被限制。cosPitchFactor: $cosPitchFactor")
+  } else {
+    faceHeightOnCanvasFixed = faceHeightOnCanvas / cosPitchFactor
+  }
+
+  return Pair(faceWidthOnCanvasFixed, faceHeightOnCanvasFixed)
+  // 或者: return FixedFaceDimensions(faceWidthOnCanvasFixed, faceHeightOnCanvasFixed)
+}
+
 /**
  * 在 Canvas 上根据人脸关键点绘制 3D 模型 overlay（Bitmap）。
  */
@@ -198,10 +245,17 @@ fun DrawScope.draw3DOverlayToCanvas(
       Log.d("YML", "faceRectTop: $faceRectTop, faceRectBottom: $faceRectBottom")
 
       val faceWidthOnCanvas = faceRectRight - faceRectLeft
-      val faceHeightOnCanvas = faceRectBottom - faceRectTop // 人脸在Canvas上的高度
+      val faceHeightOnCanvas = faceRectBottom - faceRectTop
+      val (fixedFaceWidthOnCanvas, fixedFaceHeightOnCanvas) = fixFaceSize(
+        faceWidthOnCanvas.toDouble(),
+        faceHeightOnCanvas.toDouble(),
+        yaw.toDouble(),
+        pitch.toDouble()
+      )
       val faceCenterX = faceRectLeft + faceWidthOnCanvas / 2f
       val faceCenterY = faceRectTop + faceHeightOnCanvas / 2f
       Log.d("YML", "faceWidthOnCanvas: $faceWidthOnCanvas, faceHeightOnCanvas: $faceHeightOnCanvas")
+      Log.d("YML", "fixedFaceWidthOnCanvas: $fixedFaceWidthOnCanvas, fixedFaceHeightOnCanvas: $fixedFaceHeightOnCanvas")
       Log.d("YML", "faceCenterX: $faceCenterX, faceCenterY: $faceCenterY")
       /*这里的faceCenter指的是脸的中心点，而不是头的中心点*/
 

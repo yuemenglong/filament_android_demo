@@ -116,20 +116,20 @@ private fun extractOffset(matrix: FloatArray): FloatArray {
  * 在 Canvas 上根据人脸关键点绘制 3D 模型 overlay（Bitmap）。
  */
 fun DrawScope.draw3DOverlayToCanvas(
-  overlayBitmap: Bitmap?,
+  modelImange: Bitmap?,
   landmarkResult: FaceLandmarkerResult?,
-  imageWidth: Int,
-  imageHeight: Int,
+  cameraInageWidth: Int,
+  cameraImageHeight: Int,
   overlayScaleRelativeToFace: Float = 1.8f
 ) {
-  if (overlayBitmap == null || landmarkResult == null || landmarkResult.faceLandmarks().isEmpty()) {
+  if (modelImange == null || landmarkResult == null || landmarkResult.faceLandmarks().isEmpty()) {
     return
   }
 
   val canvasWidth = this.size.width
   val canvasHeight = this.size.height
 
-  if (imageWidth <= 0 || imageHeight <= 0 || canvasWidth <= 0f || canvasHeight <= 0f) {
+  if (cameraInageWidth <= 0 || cameraImageHeight <= 0 || canvasWidth <= 0f || canvasHeight <= 0f) {
     return
   }
   // 提取欧拉角 [pitch, yaw, roll]
@@ -161,11 +161,16 @@ fun DrawScope.draw3DOverlayToCanvas(
   }
 
 
-  val scaleFactor = max(canvasWidth / imageWidth, canvasHeight / imageHeight)
-  val scaledImageWidth = imageWidth * scaleFactor
-  val scaledImageHeight = imageHeight * scaleFactor
+  val scaleFactor = max(canvasWidth / cameraInageWidth, canvasHeight / cameraImageHeight)
+  Log.d("YML", "cameraInageWidth: $cameraInageWidth, cameraImageHeight: $cameraImageHeight")
+  Log.d("YML", "canvasWidth: $canvasWidth, canvasHeight: $canvasHeight")
+  Log.d("YML", "scaleFactor: $scaleFactor")
+  val scaledImageWidth = cameraInageWidth * scaleFactor
+  val scaledImageHeight = cameraImageHeight * scaleFactor
   val canvasOffsetX = (canvasWidth - scaledImageWidth) / 2f
   val canvasOffsetY = (canvasHeight - scaledImageHeight) / 2f
+  Log.d("YML", "scaledImageWidth: $scaledImageWidth, scaledImageHeight: $scaledImageHeight")
+  Log.d("YML", "canvasOffsetX: $canvasOffsetX, canvasOffsetY: $canvasOffsetY")
 
   val allLandmarks = landmarkResult.faceLandmarks().firstOrNull()
   if (allLandmarks != null && allLandmarks.isNotEmpty()) {
@@ -206,7 +211,7 @@ fun DrawScope.draw3DOverlayToCanvas(
       Log.d("YML", "horizontalOffset: $horizontalOffset, verticalOffset: $verticalOffset")
 
       val bitmapAspectRatio =
-        if (overlayBitmap.height > 0) overlayBitmap.width.toFloat() / overlayBitmap.height.toFloat() else 1f
+        if (modelImange.height > 0) modelImange.width.toFloat() / modelImange.height.toFloat() else 1f
       val overlayTargetHeight = overlayTargetWidth / bitmapAspectRatio
 
       // 应用横向和纵向补偿
@@ -220,12 +225,12 @@ fun DrawScope.draw3DOverlayToCanvas(
       )
       Log.d("YML", "destLeftRaw: $destLeftRaw, destLeft: $destLeft, destTopRaw: $destTopRaw, destTop: $destTop")
 
-      val imageBitmapToDraw = overlayBitmap.asImageBitmap()
+      val imageBitmapToDraw = modelImange.asImageBitmap()
 
       drawImage(
         image = imageBitmapToDraw,
         srcOffset = IntOffset.Zero,
-        srcSize = IntSize(overlayBitmap.width, overlayBitmap.height),
+        srcSize = IntSize(modelImange.width, modelImange.height),
         dstOffset = IntOffset(destLeft, destTop),
         dstSize = IntSize(
           overlayTargetWidth.toInt(),

@@ -160,6 +160,7 @@ class MainActivity : ComponentActivity() {
       ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) -> {
         mediaPipeProcessor.init(this)
       }
+
       else -> {
         requestPermissionLauncher.launch(Manifest.permission.CAMERA)
       }
@@ -470,10 +471,10 @@ fun CameraPreviewWithLandmarks(
       // Draw Overlay Bitmap
       if (overlayEnabled) {
         draw3DOverlayToCanvas(
-          overlayBitmap = overlayBitmap,
+          modelImange = overlayBitmap,
           landmarkResult = landmarkResult,
-          imageWidth = imageWidth,
-          imageHeight = imageHeight
+          cameraInageWidth = imageWidth,
+          cameraImageHeight = imageHeight
         )
       }
     }

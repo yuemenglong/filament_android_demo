@@ -184,6 +184,14 @@ fun DrawScope.draw3DOverlayToCanvas(
   val (rot, pos) = if (landmarkResult.facialTransformationMatrixes().isPresent &&
     landmarkResult.facialTransformationMatrixes().get().isNotEmpty()
   ) {
+    // 按4x4格式记录矩阵
+    val matrix = landmarkResult.facialTransformationMatrixes().get()[0]
+    Log.d("YML", "Transformation Matrix 4x4:")
+    Log.d("YML", String.format("[%.4f, %.4f, %.4f, %.4f]", matrix[0], matrix[1], matrix[2], matrix[3]))
+    Log.d("YML", String.format("[%.4f, %.4f, %.4f, %.4f]", matrix[4], matrix[5], matrix[6], matrix[7]))
+    Log.d("YML", String.format("[%.4f, %.4f, %.4f, %.4f]", matrix[8], matrix[9], matrix[10], matrix[11]))
+    Log.d("YML", String.format("[%.4f, %.4f, %.4f, %.4f]", matrix[12], matrix[13], matrix[14], matrix[15]))
+
     val transformationMatrix = landmarkResult.facialTransformationMatrixes().get()[0]
     val eulerAngles = extractEulerAngles(transformationMatrix)
     val offset = extractOffset(transformationMatrix)
@@ -195,19 +203,6 @@ fun DrawScope.draw3DOverlayToCanvas(
   val (posX, posY) = pos
   Log.d("YML", "Yaw: $yaw, Pitch: $pitch")
   Log.d("YML", "posX: $posX, posY: $posY")
-  // 记录4x4变换矩阵
-  if (landmarkResult.facialTransformationMatrixes().isPresent &&
-    landmarkResult.facialTransformationMatrixes().get().isNotEmpty()
-  ) {
-    val matrix = landmarkResult.facialTransformationMatrixes().get()[0]
-    // 按4x4格式记录矩阵
-    Log.d("YML", "Transformation Matrix 4x4:")
-    Log.d("YML", String.format("[%.4f, %.4f, %.4f, %.4f]", matrix[0], matrix[1], matrix[2], matrix[3]))
-    Log.d("YML", String.format("[%.4f, %.4f, %.4f, %.4f]", matrix[4], matrix[5], matrix[6], matrix[7]))
-    Log.d("YML", String.format("[%.4f, %.4f, %.4f, %.4f]", matrix[8], matrix[9], matrix[10], matrix[11]))
-    Log.d("YML", String.format("[%.4f, %.4f, %.4f, %.4f]", matrix[12], matrix[13], matrix[14], matrix[15]))
-  }
-
 
   val scaleFactor = max(canvasWidth / cameraInageWidth, canvasHeight / cameraImageHeight)
   Log.d("YML", "cameraInageWidth: $cameraInageWidth, cameraImageHeight: $cameraImageHeight")
@@ -264,7 +259,6 @@ fun DrawScope.draw3DOverlayToCanvas(
       // 横向位置补偿参数
       val K_yaw_offset = 0.20f // 可根据实际效果调整
       val offsetX = yaw * K_yaw_offset * faceWidthOnCanvas
-//      val offsetX = posX * 0.1 * faceWidthOnCanvas
 
       // 纵向位置补偿参数
       val K_pitch_offset = 0.20f // 可根据实际效果调整

@@ -138,6 +138,19 @@ fun DrawScope.draw3DOverlayToCanvas(
     Pair(0.0f, 0.0f)
   }
   Log.d("YML", "Yaw: $yaw, Pitch: $pitch")
+  // 记录4x4变换矩阵
+  if (landmarkResult.facialTransformationMatrixes().isPresent &&
+    landmarkResult.facialTransformationMatrixes().get().isNotEmpty()
+  ) {
+    val matrix = landmarkResult.facialTransformationMatrixes().get()[0]
+    // 按4x4格式记录矩阵
+    Log.d("YML", "Transformation Matrix 4x4:")
+    Log.d("YML", String.format("[%.4f, %.4f, %.4f, %.4f]", matrix[0], matrix[1], matrix[2], matrix[3]))
+    Log.d("YML", String.format("[%.4f, %.4f, %.4f, %.4f]", matrix[4], matrix[5], matrix[6], matrix[7]))
+    Log.d("YML", String.format("[%.4f, %.4f, %.4f, %.4f]", matrix[8], matrix[9], matrix[10], matrix[11]))
+    Log.d("YML", String.format("[%.4f, %.4f, %.4f, %.4f]", matrix[12], matrix[13], matrix[14], matrix[15]))
+  }
+
 
   val scaleFactor = max(canvasWidth / imageWidth, canvasHeight / imageHeight)
   val scaledImageWidth = imageWidth * scaleFactor

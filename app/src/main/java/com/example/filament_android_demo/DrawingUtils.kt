@@ -127,16 +127,17 @@ fun DrawScope.draw3DOverlayToCanvas(
   if (imageWidth <= 0 || imageHeight <= 0 || canvasWidth <= 0f || canvasHeight <= 0f) {
     return
   }
-  val yaw = if (landmarkResult.facialTransformationMatrixes().isPresent &&
+  // 提取欧拉角 [pitch, yaw, roll]
+  val (pitch, yaw) = if (landmarkResult.facialTransformationMatrixes().isPresent &&
     landmarkResult.facialTransformationMatrixes().get().isNotEmpty()
   ) {
     val transformationMatrix = landmarkResult.facialTransformationMatrixes().get()[0]
     val eulerAngles = extractEulerAngles(transformationMatrix)
-    eulerAngles[1]
+    Pair(eulerAngles[0], eulerAngles[1])
   } else {
-    0.0f
+    Pair(0.0f, 0.0f)
   }
-  Log.d("YML", "yaw: $yaw")
+  Log.d("YML", "Yaw: $yaw, Pitch: $pitch")
 
   val scaleFactor = max(canvasWidth / imageWidth, canvasHeight / imageHeight)
   val scaledImageWidth = imageWidth * scaleFactor
@@ -165,24 +166,30 @@ fun DrawScope.draw3DOverlayToCanvas(
       val faceRectBottom = maxYNorm * scaledImageHeight + canvasOffsetY
 
       val faceWidthOnCanvas = faceRectRight - faceRectLeft
+      val faceHeightOnCanvas = faceRectBottom - faceRectTop // 人脸在Canvas上的高度
       val faceCenterX = faceRectLeft + faceWidthOnCanvas / 2f
-      val faceCenterY = faceRectTop + (faceRectBottom - faceRectTop) / 2f
+      val faceCenterY = faceRectTop + faceHeightOnCanvas / 2f
 
       val overlayTargetWidth = faceWidthOnCanvas * overlayScaleRelativeToFace
 
       // 横向位置补偿参数
-      val K_yaw_offset = 0.20f // 可根据实际效果调整，建议范围 0.2~0.5
+      val K_yaw_offset = 0.20f // 可根据实际效果调整
       val horizontalOffset = yaw * K_yaw_offset * faceWidthOnCanvas
+
+      // 纵向位置补偿参数
+      val K_pitch_offset = 0.20f // 可根据实际效果调整
+      val verticalOffset = pitch * K_pitch_offset * faceHeightOnCanvas
 
       val bitmapAspectRatio =
         if (overlayBitmap.height > 0) overlayBitmap.width.toFloat() / overlayBitmap.height.toFloat() else 1f
       val overlayTargetHeight = overlayTargetWidth / bitmapAspectRatio
 
-      // 应用横向补偿
+      // 应用横向和纵向补偿
       val destLeftRaw = (faceCenterX - overlayTargetWidth / 2f).toInt()
+      val destTopRaw = (faceCenterY - overlayTargetHeight / 2f).toInt()
       val destLeft = (faceCenterX - overlayTargetWidth / 2f + horizontalOffset).toInt()
-      val destTop = (faceCenterY - overlayTargetHeight / 2f).toInt()
-      Log.d("YML", "destLeftRaw: $destLeftRaw, destLeft: $destLeft, destTop: $destTop")
+      val destTop = (faceCenterY - overlayTargetHeight / 2f + verticalOffset).toInt()
+      Log.d("YML", "destLeftRaw: $destLeftRaw, destLeft: $destLeft, destTopRaw: $destTopRaw, destTop: $destTop")
 
       val imageBitmapToDraw = overlayBitmap.asImageBitmap()
 

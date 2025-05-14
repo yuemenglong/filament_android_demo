@@ -248,11 +248,10 @@ fun DrawScope.draw3DOverlayToCanvas(
         yaw.toDouble(),
         pitch.toDouble()
       )
-      val faceCenterX = faceRectLeft + faceWidthOnCanvas / 2f
-      val faceCenterY = faceRectTop + faceHeightOnCanvas / 2f
+
       Log.d("YML", "faceWidthOnCanvas: $faceWidthOnCanvas, faceHeightOnCanvas: $faceHeightOnCanvas")
       Log.d("YML", "fixedFaceWidthOnCanvas: $fixedFaceWidthOnCanvas, fixedFaceHeightOnCanvas: $fixedFaceHeightOnCanvas")
-      Log.d("YML", "faceCenterX: $faceCenterX, faceCenterY: $faceCenterY")
+
       /*这里的faceCenter指的是脸的中心点，而不是头的中心点*/
 
 
@@ -265,6 +264,13 @@ fun DrawScope.draw3DOverlayToCanvas(
       val offsetY = pitch * K_pitch_offset * faceHeightOnCanvas
       Log.d("YML", "offsetX: $offsetX, offsetY: $offsetY")
 
+      val faceCenterX = faceRectLeft + faceWidthOnCanvas / 2f
+      val faceCenterY = faceRectTop + faceHeightOnCanvas / 2f
+      val fixedFaceCenterX = faceCenterX + offsetX
+      val fixedFaceCenterY = faceCenterY + offsetY
+      Log.d("YML", "faceCenterX: $faceCenterX, faceCenterY: $faceCenterY")
+      Log.d("YML", "fixedFaceCenterX: $fixedFaceCenterX, fixedFaceCenterY: $fixedFaceCenterY")
+
       val overlayTargetWidth = faceWidthOnCanvas * overlayScaleRelativeToFace
       val bitmapAspectRatio =
         if (modelImange.height > 0) modelImange.width.toFloat() / modelImange.height.toFloat() else 1f
@@ -272,12 +278,9 @@ fun DrawScope.draw3DOverlayToCanvas(
       Log.d("YML", "overlayTargetWidth: $overlayTargetWidth, overlayTargetHeight: $overlayTargetHeight")
 
       // 应用横向和纵向补偿
-      val destLeftRaw = (faceCenterX - overlayTargetWidth / 2f).toInt()
-      val destTopRaw = (faceCenterY - overlayTargetHeight / 2f).toInt()
-      val destLeft = (faceCenterX - overlayTargetWidth / 2f + offsetX).toInt()
-      val destTop = (faceCenterY - overlayTargetHeight / 2f + offsetY).toInt()
-      Log.d("YML", "destLeftRaw: $destLeftRaw, destLeft: $destLeft")
-      Log.d("YML", "destTopRaw: $destTopRaw, destTop: $destTop")
+      val destLeft = (fixedFaceCenterX - overlayTargetWidth / 2f).toInt()
+      val destTop = (fixedFaceCenterY - overlayTargetHeight / 2f).toInt()
+      Log.d("YML", "destLeft: $destLeft, destTop: $destTop")
 
       val imageBitmapToDraw = modelImange.asImageBitmap()
 

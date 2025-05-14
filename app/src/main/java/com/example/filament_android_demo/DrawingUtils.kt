@@ -181,7 +181,7 @@ fun DrawScope.draw3DOverlayToCanvas(
   }
 
   Log.d("YML", "---------------------------------------------------------------------------")
-  val (rot, offset) = if (landmarkResult.facialTransformationMatrixes().isPresent &&
+  val (rot, pos) = if (landmarkResult.facialTransformationMatrixes().isPresent &&
     landmarkResult.facialTransformationMatrixes().get().isNotEmpty()
   ) {
     val transformationMatrix = landmarkResult.facialTransformationMatrixes().get()[0]
@@ -192,9 +192,9 @@ fun DrawScope.draw3DOverlayToCanvas(
     Pair(Pair(0.0f, 0.0f), Pair(0.0f, 0.0f))
   }
   val (pitch, yaw) = rot
-  val (offsetX, offsetY) = offset
+  val (posX, posY) = pos
   Log.d("YML", "Yaw: $yaw, Pitch: $pitch")
-  Log.d("YML", "OffsetX: $offsetX, OffsetY: $offsetY")
+  Log.d("YML", "posX: $posX, posY: $posY")
   // 记录4x4变换矩阵
   if (landmarkResult.facialTransformationMatrixes().isPresent &&
     landmarkResult.facialTransformationMatrixes().get().isNotEmpty()

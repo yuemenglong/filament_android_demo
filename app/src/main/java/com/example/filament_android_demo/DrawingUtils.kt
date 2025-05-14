@@ -189,13 +189,13 @@ fun DrawScope.draw3DOverlayToCanvas(
     if (minXNorm < maxXNorm && minYNorm < maxYNorm) {
       Log.d("YML", "minXNorm: $minXNorm, minYNorm: $minYNorm")
       Log.d("YML", "maxXNorm: $maxXNorm, maxYNorm: $maxYNorm")
-     
+
       val faceRectLeft = minXNorm * scaledImageWidth + canvasOffsetX
       val faceRectTop = minYNorm * scaledImageHeight + canvasOffsetY
       val faceRectRight = maxXNorm * scaledImageWidth + canvasOffsetX
       val faceRectBottom = maxYNorm * scaledImageHeight + canvasOffsetY
-      Log.d("YML", "faceRectLeft: $faceRectLeft, faceRectTop: $faceRectTop")
-      Log.d("YML", "faceRectRight: $faceRectRight, faceRectBottom: $faceRectBottom")
+      Log.d("YML", "faceRectLeft: $faceRectLeft, faceRectRight: $faceRectRight")
+      Log.d("YML", "faceRectTop: $faceRectTop, faceRectBottom: $faceRectBottom")
 
       val faceWidthOnCanvas = faceRectRight - faceRectLeft
       val faceHeightOnCanvas = faceRectBottom - faceRectTop // 人脸在Canvas上的高度
@@ -203,10 +203,10 @@ fun DrawScope.draw3DOverlayToCanvas(
       val faceCenterY = faceRectTop + faceHeightOnCanvas / 2f
       Log.d("YML", "faceWidthOnCanvas: $faceWidthOnCanvas, faceHeightOnCanvas: $faceHeightOnCanvas")
       Log.d("YML", "faceCenterX: $faceCenterX, faceCenterY: $faceCenterY")
+      /*这里的faceCenter指的是脸的中心点，而不是头的中心点*/
 
 
       // 横向位置补偿参数
-
       val K_yaw_offset = 0.20f // 可根据实际效果调整
       val horizontalOffset = yaw * K_yaw_offset * faceWidthOnCanvas
 //      val horizontalOffset = offsetX * 0.1 * faceWidthOnCanvas

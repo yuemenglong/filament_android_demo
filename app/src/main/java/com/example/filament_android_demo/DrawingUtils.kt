@@ -132,7 +132,7 @@ fun DrawScope.draw3DOverlayToCanvas(
   if (cameraInageWidth <= 0 || cameraImageHeight <= 0 || canvasWidth <= 0f || canvasHeight <= 0f) {
     return
   }
-  
+
   Log.d("YML", "---------------------------------------------------------------------------")
   val (rot, offset) = if (landmarkResult.facialTransformationMatrixes().isPresent &&
     landmarkResult.facialTransformationMatrixes().get().isNotEmpty()
@@ -187,6 +187,9 @@ fun DrawScope.draw3DOverlayToCanvas(
     }
 
     if (minXNorm < maxXNorm && minYNorm < maxYNorm) {
+      Log.d("YML", "minXNorm: $minXNorm, minYNorm: $minYNorm")
+      Log.d("YML", "maxXNorm: $maxXNorm, maxYNorm: $maxYNorm")
+     
       val faceRectLeft = minXNorm * scaledImageWidth + canvasOffsetX
       val faceRectTop = minYNorm * scaledImageHeight + canvasOffsetY
       val faceRectRight = maxXNorm * scaledImageWidth + canvasOffsetX

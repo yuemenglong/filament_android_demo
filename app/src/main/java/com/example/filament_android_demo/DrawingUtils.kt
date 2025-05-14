@@ -136,7 +136,7 @@ fun DrawScope.draw3DOverlayToCanvas(
   } else {
     0.0f
   }
-  Log.d("TAG", "yaw: $yaw")
+  Log.d("YML", "yaw: $yaw")
 
   val scaleFactor = max(canvasWidth / imageWidth, canvasHeight / imageHeight)
   val scaledImageWidth = imageWidth * scaleFactor
@@ -171,16 +171,18 @@ fun DrawScope.draw3DOverlayToCanvas(
       val overlayTargetWidth = faceWidthOnCanvas * overlayScaleRelativeToFace
 
       // 横向位置补偿参数
-      val K_yaw_offset = 0.35f // 可根据实际效果调整，建议范围 0.2~0.5
-      val horizontalOffset = -yaw * K_yaw_offset * faceWidthOnCanvas
+      val K_yaw_offset = 0.20f // 可根据实际效果调整，建议范围 0.2~0.5
+      val horizontalOffset = yaw * K_yaw_offset * faceWidthOnCanvas
 
       val bitmapAspectRatio =
         if (overlayBitmap.height > 0) overlayBitmap.width.toFloat() / overlayBitmap.height.toFloat() else 1f
       val overlayTargetHeight = overlayTargetWidth / bitmapAspectRatio
 
       // 应用横向补偿
+      val destLeftRaw = (faceCenterX - overlayTargetWidth / 2f).toInt()
       val destLeft = (faceCenterX - overlayTargetWidth / 2f + horizontalOffset).toInt()
       val destTop = (faceCenterY - overlayTargetHeight / 2f).toInt()
+      Log.d("YML", "destLeftRaw: $destLeftRaw, destLeft: $destLeft, destTop: $destTop")
 
       val imageBitmapToDraw = overlayBitmap.asImageBitmap()
 

@@ -107,6 +107,11 @@ private fun extractEulerAngles(matrix: FloatArray): FloatArray {
   return floatArrayOf(pitch, yaw, roll)
 }
 
+private fun extractOffset(matrix: FloatArray): FloatArray {
+  require(matrix.size == 16) { "变换矩阵必须是4x4矩阵（16个元素）。" }
+  return floatArrayOf(matrix[12], matrix[13], matrix[14])
+}
+
 /**
  * 在 Canvas 上根据人脸关键点绘制 3D 模型 overlay（Bitmap）。
  */
@@ -128,16 +133,20 @@ fun DrawScope.draw3DOverlayToCanvas(
     return
   }
   // 提取欧拉角 [pitch, yaw, roll]
-  val (pitch, yaw) = if (landmarkResult.facialTransformationMatrixes().isPresent &&
+//  val ((pitch, yaw), (offsetX, offsetY)) = if (landmarkResult.facialTransformationMatrixes().isPresent &&
+  val (rot, offset) = if (landmarkResult.facialTransformationMatrixes().isPresent &&
     landmarkResult.facialTransformationMatrixes().get().isNotEmpty()
   ) {
     val transformationMatrix = landmarkResult.facialTransformationMatrixes().get()[0]
     val eulerAngles = extractEulerAngles(transformationMatrix)
-    Pair(eulerAngles[0], eulerAngles[1])
+    val offset = extractOffset(transformationMatrix)
+    Pair(Pair(eulerAngles[0], eulerAngles[1]), Pair(offset[0], offset[1]))
   } else {
-    Pair(0.0f, 0.0f)
+    Pair(Pair(0.0f, 0.0f), Pair(0.0f, 0.0f))
   }
-  Log.d("YML", "Yaw: $yaw, Pitch: $pitch")
+  val (pitch, yaw) = rot
+  val (offsetX, offsetY) = offset
+  Log.d("YML", "Yaw: $yaw, Pitch: $pitch, OffsetX: $offsetX, OffsetY: $offsetY")
   // 记录4x4变换矩阵
   if (landmarkResult.facialTransformationMatrixes().isPresent &&
     landmarkResult.facialTransformationMatrixes().get().isNotEmpty()
@@ -186,12 +195,15 @@ fun DrawScope.draw3DOverlayToCanvas(
       val overlayTargetWidth = faceWidthOnCanvas * overlayScaleRelativeToFace
 
       // 横向位置补偿参数
+
       val K_yaw_offset = 0.20f // 可根据实际效果调整
-      val horizontalOffset = yaw * K_yaw_offset * faceWidthOnCanvas
+//      val horizontalOffset = yaw * K_yaw_offset * faceWidthOnCanvas
+      val horizontalOffset = offsetX * 0.1 * faceWidthOnCanvas
 
       // 纵向位置补偿参数
       val K_pitch_offset = 0.20f // 可根据实际效果调整
       val verticalOffset = pitch * K_pitch_offset * faceHeightOnCanvas
+      Log.d("YML", "horizontalOffset: $horizontalOffset, verticalOffset: $verticalOffset")
 
       val bitmapAspectRatio =
         if (overlayBitmap.height > 0) overlayBitmap.width.toFloat() / overlayBitmap.height.toFloat() else 1f
@@ -202,6 +214,10 @@ fun DrawScope.draw3DOverlayToCanvas(
       val destTopRaw = (faceCenterY - overlayTargetHeight / 2f).toInt()
       val destLeft = (faceCenterX - overlayTargetWidth / 2f + horizontalOffset).toInt()
       val destTop = (faceCenterY - overlayTargetHeight / 2f + verticalOffset).toInt()
+      Log.d(
+        "YML",
+        "faceRectLeft: $faceRectLeft, faceRectTop: $faceRectTop, overlayTargetWidth: $overlayTargetWidth, overlayTargetHeight: $overlayTargetHeight"
+      )
       Log.d("YML", "destLeftRaw: $destLeftRaw, destLeft: $destLeft, destTopRaw: $destTopRaw, destTop: $destTop")
 
       val imageBitmapToDraw = overlayBitmap.asImageBitmap()

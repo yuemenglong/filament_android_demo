@@ -263,13 +263,13 @@ fun DrawScope.draw3DOverlayToCanvas(
 
       // 横向位置补偿参数
       val K_yaw_offset = 0.20f // 可根据实际效果调整
-      val horizontalOffset = yaw * K_yaw_offset * faceWidthOnCanvas
-//      val horizontalOffset = offsetX * 0.1 * faceWidthOnCanvas
+      val offsetX = yaw * K_yaw_offset * faceWidthOnCanvas
+//      val offsetX = posX * 0.1 * faceWidthOnCanvas
 
       // 纵向位置补偿参数
       val K_pitch_offset = 0.20f // 可根据实际效果调整
-      val verticalOffset = pitch * K_pitch_offset * faceHeightOnCanvas
-      Log.d("YML", "horizontalOffset: $horizontalOffset, verticalOffset: $verticalOffset")
+      val offsetY = pitch * K_pitch_offset * faceHeightOnCanvas
+      Log.d("YML", "offsetX: $offsetX, offsetY: $offsetY")
 
       val overlayTargetWidth = faceWidthOnCanvas * overlayScaleRelativeToFace
       val bitmapAspectRatio =
@@ -280,8 +280,8 @@ fun DrawScope.draw3DOverlayToCanvas(
       // 应用横向和纵向补偿
       val destLeftRaw = (faceCenterX - overlayTargetWidth / 2f).toInt()
       val destTopRaw = (faceCenterY - overlayTargetHeight / 2f).toInt()
-      val destLeft = (faceCenterX - overlayTargetWidth / 2f + horizontalOffset).toInt()
-      val destTop = (faceCenterY - overlayTargetHeight / 2f + verticalOffset).toInt()
+      val destLeft = (faceCenterX - overlayTargetWidth / 2f + offsetX).toInt()
+      val destTop = (faceCenterY - overlayTargetHeight / 2f + offsetY).toInt()
       Log.d("YML", "destLeftRaw: $destLeftRaw, destLeft: $destLeft")
       Log.d("YML", "destTopRaw: $destTopRaw, destTop: $destTop")
 

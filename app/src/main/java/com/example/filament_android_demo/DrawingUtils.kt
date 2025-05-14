@@ -193,7 +193,8 @@ fun DrawScope.draw3DOverlayToCanvas(
   }
   val (pitch, yaw) = rot
   val (offsetX, offsetY) = offset
-  Log.d("YML", "Yaw: $yaw, Pitch: $pitch, OffsetX: $offsetX, OffsetY: $offsetY")
+  Log.d("YML", "Yaw: $yaw, Pitch: $pitch")
+  Log.d("YML", "OffsetX: $offsetX, OffsetY: $offsetY")
   // 记录4x4变换矩阵
   if (landmarkResult.facialTransformationMatrixes().isPresent &&
     landmarkResult.facialTransformationMatrixes().get().isNotEmpty()

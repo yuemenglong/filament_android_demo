@@ -164,14 +164,10 @@ fun draw3DOverlayToBitmap(
             )
 
             /*这里的faceCenter指的是脸的中心点，而不是头的中心点*/
-
-            // 横向位置补偶参数
             val K_yaw_offset = 0.20f // 可根据实际效果调整
-            val offsetX = yaw * K_yaw_offset * faceWidthOnBitmap
-
-            // 纵向位置补偶参数
             val K_pitch_offset = 0.20f // 可根据实际效果调整
-            val offsetY = pitch * K_pitch_offset * faceHeightOnBitmap
+            val offsetX = (yaw + pitch * 1.0) * K_yaw_offset * faceWidthOnBitmap
+            val offsetY = (pitch + yaw * 1.0) * K_pitch_offset * faceHeightOnBitmap
             Log.d("YML", "offsetX: $offsetX, offsetY: $offsetY")
 
             val faceCenterX = faceRectLeft + faceWidthOnBitmap / 2f

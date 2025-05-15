@@ -107,11 +107,14 @@ public class ModelRender {
   public static final String MODEL_PATH = "man1.glb";
   private static final int IMAGE_WIDTH = 600;
   private static final int IMAGE_HEIGHT = 800;
-  private static final float VERTICAL_CENTERING_ADJUSTMENT_FACTOR = 0.2f;
-  public static final float SCALE_FACTOR = 5.0f;
-  private static final long RENDER_TIMEOUT_SECONDS = 15;
 
+  private static final float VERTICAL_CENTERING_ADJUSTMENT_FACTOR = 0.2f;
+  private static final double FOV = 60.0;
+  public static final float SCALE_FACTOR = 5.0f;
+
+  private static final long RENDER_TIMEOUT_SECONDS = 15;
   private static final long SHUTDOWN_TIMEOUT_SECONDS = 20;
+
   // --- 只显示头部相关实体的名称列表 ---
   private static final List<String> ENTITY_NAMES_TO_KEEP_VISIBLE = Arrays.asList(
     "Wolf3D_Head",
@@ -133,8 +136,6 @@ public class ModelRender {
   private volatile int mCameraEntity = 0;
   private volatile Skybox mSkybox = null;
   private volatile int mLightEntity = 0; // 新增：光源实体ID
-
-  private static final double FOV = 60.0;
 
   // --- gltfio Objects ---
   private volatile AssetLoader mAssetLoader = null;

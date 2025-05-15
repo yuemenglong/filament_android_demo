@@ -80,8 +80,7 @@ fun drawFaceLandmarksOnBitmap(
  * @return 带有模型覆盖层的新Bitmap
  */
 /*TODO 修改这个函数
-modelImage是argb的，计算其中心点时，使用其中有效的像素，跳过其中透明的像素
-将这个中心点点在图上
+将3D模型覆盖在原始图像上的时候，通过将模型的中心点（绿色的那个）与面部特征点的中心点(修正后的)进行对齐，废弃之前的对齐方式
 * */
 fun draw3DOverlayToBitmap(
     cameraImage: Bitmap?,
@@ -217,61 +216,80 @@ fun draw3DOverlayToBitmap(
                 "Width: $overlayTargetWidth, Height: $overlayTargetHeight, AspectRatio: $bitmapAspectRatio"
             )
 
-            // 应用横向和纵向补偶 (这里使用修正后的中心点来定位模型)
-            val destLeft = (fixedFaceCenterX - overlayTargetWidth / 2f)
-            val destTop = (fixedFaceCenterY - overlayTargetHeight / 2f) // Y轴向下为正
-            Log.d("YML", "3D model destination on canvas: destLeft: $destLeft, destTop: $destTop")
-
-            // 绘制模型到原始图像上
-            val destRect = Rect(
-                destLeft.toInt(),
-                destTop.toInt(),
-                (destLeft + overlayTargetWidth).toInt(),
-                (destTop + overlayTargetHeight).toInt()
-            )
-
-            canvas.drawBitmap(modelImage, null, destRect, null)
-            Log.d("YML", "3D model drawn to Rect: $destRect")
-
-            // 新增：绘制 modelImage 有效像素中心点（绿色）
+            // --- MODIFICATION START: 将3D模型的有效像素中心与修正后的面部中心对齐 ---
+            // 获取3D模型图像的有效像素中心点（模型自身的局部坐标）
             val modelEffectiveCenterLocal = getEffectivePixelsCenter(modelImage)
-            if (modelEffectiveCenterLocal != null) {
+
+            // 检查是否能获取到模型有效中心，以及模型和目标绘制尺寸是否有效
+            if (modelEffectiveCenterLocal != null && modelImage.width > 0 && modelImage.height > 0 &&
+                overlayTargetWidth > 0f && overlayTargetHeight > 0f) {
+
                 val localEffCenterX = modelEffectiveCenterLocal.first
                 val localEffCenterY = modelEffectiveCenterLocal.second
 
-                val modelImageOriginalWidth = modelImage.width.toFloat()
-                val modelImageOriginalHeight = modelImage.height.toFloat()
+                // 计算模型在画布上绘制时，从其原始尺寸到目标尺寸的缩放因子
+                val scaleFactorX = overlayTargetWidth / modelImage.width.toFloat()
+                val scaleFactorY = overlayTargetHeight / modelImage.height.toFloat()
 
-                if (modelImageOriginalWidth > 0 && modelImageOriginalHeight > 0 && destRect.width() > 0 && destRect.height() > 0) {
-                    val scaleX = destRect.width() / modelImageOriginalWidth
-                    val scaleY = destRect.height() / modelImageOriginalHeight
+                // 计算模型绘制区域 (destRect) 的左上角 (destLeft, destTop) 坐标，
+                // 使得模型的有效像素中心点 (localEffCenterX, localEffCenterY) 经过缩放和平移后，
+                // 正好落在画布上的 fixedFaceCenterX, fixedFaceCenterY 位置。
+                // fixedFaceCenterX = destLeft + localEffCenterX * scaleFactorX
+                // fixedFaceCenterY = destTop + localEffCenterY * scaleFactorY
+                // 由此推导出：
+                val destLeft = fixedFaceCenterX - (localEffCenterX * scaleFactorX)
+                val destTop = fixedFaceCenterY - (localEffCenterY * scaleFactorY)
 
-                    val mappedModelEffCenterX = destRect.left + localEffCenterX * scaleX
-                    val mappedModelEffCenterY = destRect.top + localEffCenterY * scaleY
+                Log.d("YML", "New 3D model alignment: destLeft: $destLeft, destTop: $destTop. Aligning model effective center to fixed face center.")
+                Log.d("YML_POINTS", "Model local effective center: ($localEffCenterX, $localEffCenterY), Target canvas position for this point: ($fixedFaceCenterX, $fixedFaceCenterY)")
 
+
+                // 定义模型在画布上的目标绘制矩形区域
+                val destRect = Rect(
+                    destLeft.toInt(),
+                    destTop.toInt(),
+                    (destLeft + overlayTargetWidth).toInt(),
+                    (destTop + overlayTargetHeight).toInt()
+                )
+
+                // 确保目标绘制区域的宽高有效
+                if (destRect.width() > 0 && destRect.height() > 0) {
+                    // 将模型图像绘制到计算出的目标矩形区域
+                    canvas.drawBitmap(modelImage, null, destRect, null)
+                    Log.d("YML", "3D model drawn to Rect: $destRect")
+
+                    // 绘制模型有效像素中心点在画布上的位置 (绿色)，用于验证对齐效果
+                    // 此点理论上应与 fixedFaceCenterX, fixedFaceCenterY (黄色点) 重合或非常接近
+                    val mappedModelEffCenterX = destRect.left + localEffCenterX * scaleFactorX
+                    val mappedModelEffCenterY = destRect.top + localEffCenterY * scaleFactorY
                     canvas.drawCircle(mappedModelEffCenterX, mappedModelEffCenterY, pointRadius, greenPaint)
-                    Log.d("YML_POINTS", "Drew Model's Effective Pixel Center (Green) at: ($mappedModelEffCenterX, $mappedModelEffCenterY). Local: ($localEffCenterX, $localEffCenterY)")
+                    Log.d("YML_POINTS", "Drew Model's Effective Pixel Center (Green) at: ($mappedModelEffCenterX, $mappedModelEffCenterY). This should match Yellow dot.")
+
+                    // 绘制3D模型在画布上的边界框几何中心点 (蓝色)
+                    // 注意：此点不一定是模型的视觉或有效像素中心
+                    val modelBoundingBoxCenterX = destRect.centerX().toFloat()
+                    val modelBoundingBoxCenterY = destRect.centerY().toFloat()
+                    canvas.drawCircle(modelBoundingBoxCenterX, modelBoundingBoxCenterY, pointRadius, bluePaint)
+                    Log.d("YML_POINTS", "Drew 3D Model Bounding Box Center (Blue) at: ($modelBoundingBoxCenterX, $modelBoundingBoxCenterY)")
+
                 } else {
-                    Log.w("YML_POINTS", "Cannot draw model's effective pixel center due to zero dimensions in modelImage or destRect.")
+                    Log.w("YML", "Destination Rect for model has zero or negative width/height. Skipping model drawing. Rect: $destRect")
                 }
             } else {
-                Log.w("YML_POINTS", "Model's effective pixel center not calculated (no effective pixels or modelImage dimensions are zero).")
+                // 记录无法进行模型对齐和绘制的原因
+                var reason = "Unknown reason."
+                if (modelEffectiveCenterLocal == null) {
+                    reason = "Model's effective pixel center not found (getEffectivePixelsCenter returned null)."
+                } else if (modelImage.width <= 0 || modelImage.height <= 0) {
+                    reason = "Model image has zero or negative width/height."
+                } else if (overlayTargetWidth <= 0f || overlayTargetHeight <= 0f) {
+                    reason = "Overlay target width or height is zero or negative."
+                }
+                Log.w("YML", "Cannot align or draw model: $reason Skipping model drawing.")
+                // 如果模型未绘制，则与模型相关的绿色和蓝色点也不会绘制。
             }
-
+            // --- MODIFICATION END ---
             // --- 绘制标记点 ---
-            // 1. landmark原来的中心点 (红色)
-            canvas.drawCircle(faceCenterX, faceCenterY, pointRadius, redPaint)
-            Log.d("YML_POINTS", "Drew Original Landmark Center (Red) at: ($faceCenterX, $faceCenterY)")
-
-            // 2. landmark修正后的中心点 (黄色)
-            canvas.drawCircle(fixedFaceCenterX, fixedFaceCenterY, pointRadius, yellowPaint)
-            Log.d("YML_POINTS", "Drew Corrected Landmark Center (Yellow) at: ($fixedFaceCenterX, $fixedFaceCenterY)")
-
-            // 3. 3d图的中心点 (蓝色)
-            val modelCenterX = destRect.centerX().toFloat()
-            val modelCenterY = destRect.centerY().toFloat()
-            canvas.drawCircle(modelCenterX, modelCenterY, pointRadius, bluePaint)
-            Log.d("YML_POINTS", "Drew 3D Model Center (Blue) at: ($modelCenterX, $modelCenterY)")
             // --- 标记点绘制结束 ---
 
         } else {

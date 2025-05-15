@@ -78,6 +78,12 @@ fun drawFaceLandmarksOnBitmap(
  * @param overlayScaleRelativeToFace 相对于面部的比例系数
  * @return 带有模型覆盖层的新Bitmap
  */
+/*TODO 修改这个函数，将
+*  1. landmark原来的中心点
+*  2. landmark修正后的中心点
+*  3. 3d图的中心点
+* 这三个点以红黄蓝的颜色分别标记出来
+* */
 fun draw3DOverlayToBitmap(
     cameraImage: Bitmap?,
     modelImage: Bitmap?,

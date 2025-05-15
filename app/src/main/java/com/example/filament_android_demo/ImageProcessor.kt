@@ -79,11 +79,9 @@ fun drawFaceLandmarksOnBitmap(
  * @param overlayScaleRelativeToFace 相对于面部的比例系数
  * @return 带有模型覆盖层的新Bitmap
  */
-/*TODO 修改这个函数，将
-* 1. landmark原来的中心点
-* 2. landmark修正后的中心点
-* 3. 3d图的中心点
-* 这三个点以红黄蓝的颜色分别标记出来
+/*TODO 修改这个函数
+modelImage是argb的，计算其中心点时，使用其中有效的像素，跳过其中透明的像素
+将这个中心点点在图上
 * */
 fun draw3DOverlayToBitmap(
     cameraImage: Bitmap?,
@@ -116,6 +114,10 @@ fun draw3DOverlayToBitmap(
     }
     val bluePaint = Paint().apply {
         color = Color.BLUE
+        style = Paint.Style.FILL
+    }
+    val greenPaint = Paint().apply {
+        color = Color.GREEN
         style = Paint.Style.FILL
     }
 
@@ -230,6 +232,31 @@ fun draw3DOverlayToBitmap(
 
             canvas.drawBitmap(modelImage, null, destRect, null)
             Log.d("YML", "3D model drawn to Rect: $destRect")
+
+            // 新增：绘制 modelImage 有效像素中心点（绿色）
+            val modelEffectiveCenterLocal = getEffectivePixelsCenter(modelImage)
+            if (modelEffectiveCenterLocal != null) {
+                val localEffCenterX = modelEffectiveCenterLocal.first
+                val localEffCenterY = modelEffectiveCenterLocal.second
+
+                val modelImageOriginalWidth = modelImage.width.toFloat()
+                val modelImageOriginalHeight = modelImage.height.toFloat()
+
+                if (modelImageOriginalWidth > 0 && modelImageOriginalHeight > 0 && destRect.width() > 0 && destRect.height() > 0) {
+                    val scaleX = destRect.width() / modelImageOriginalWidth
+                    val scaleY = destRect.height() / modelImageOriginalHeight
+
+                    val mappedModelEffCenterX = destRect.left + localEffCenterX * scaleX
+                    val mappedModelEffCenterY = destRect.top + localEffCenterY * scaleY
+
+                    canvas.drawCircle(mappedModelEffCenterX, mappedModelEffCenterY, pointRadius, greenPaint)
+                    Log.d("YML_POINTS", "Drew Model's Effective Pixel Center (Green) at: ($mappedModelEffCenterX, $mappedModelEffCenterY). Local: ($localEffCenterX, $localEffCenterY)")
+                } else {
+                    Log.w("YML_POINTS", "Cannot draw model's effective pixel center due to zero dimensions in modelImage or destRect.")
+                }
+            } else {
+                Log.w("YML_POINTS", "Model's effective pixel center not calculated (no effective pixels or modelImage dimensions are zero).")
+            }
 
             // --- 绘制标记点 ---
             // 1. landmark原来的中心点 (红色)
@@ -348,4 +375,40 @@ private fun fixFaceSize(
     }
 
     return Pair(faceWidthOnCanvasFixed, faceHeightOnCanvasFixed)
+}
+/**
+ * 计算 Bitmap 中有效（非透明）像素的中心点。
+ * @param bitmap 要分析的 Bitmap。
+ * @return Pair&lt;Float, Float&gt;? 表示有效像素中心点的 (x, y) 坐标；如果找不到有效像素，则返回 null。
+ */
+private fun getEffectivePixelsCenter(bitmap: Bitmap): Pair<Float, Float>? {
+    val width = bitmap.width
+    val height = bitmap.height
+    if (width == 0 || height == 0) {
+        return null
+    }
+
+    var sumX = 0.0
+    var sumY = 0.0
+    var count = 0
+
+    val pixels = IntArray(width * height)
+    bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+
+    for (y in 0 until height) {
+        for (x in 0 until width) {
+            val pixelColor = pixels[y * width + x]
+            if (Color.alpha(pixelColor) > 0) { // 检查像素是否不透明
+                sumX += x
+                sumY += y
+                count++
+            }
+        }
+    }
+
+    return if (count > 0) {
+        Pair((sumX / count).toFloat(), (sumY / count).toFloat())
+    } else {
+        null // 没有找到有效像素
+    }
 }

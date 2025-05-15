@@ -453,7 +453,6 @@ fun ControlPanel(
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text("Click '拍摄' for Filament render.")
         Button(
             onClick = onCaptureClick,
             enabled = isRendererReady && !isLoading
@@ -465,7 +464,7 @@ fun ControlPanel(
                     color = MaterialTheme.colorScheme.onPrimary
                 )
             } else {
-                Text("拍摄 (Capture Filament)")
+                Text("Debug")
             }
         }
     }

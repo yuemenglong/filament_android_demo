@@ -144,7 +144,6 @@ fun draw3DOverlayToBitmap(
     val (posX, posY) = pos // 这些posX, posY是归一化的，范围可能是[-1, 1]或[0,1]，取决于Matrix
     Log.d("YML", "Yaw: $yaw, Pitch: $pitch")
     Log.d("YML", "posX from matrix: $posX, posY from matrix: $posY") // 注意: posX, posY的解释可能需要根据matrix的定义来
-
     Log.d("YML", "imageWidth: $imageWidth, imageHeight: $imageHeight")
 
     val allLandmarks = landmarkResult.faceLandmarks().firstOrNull()
@@ -162,19 +161,10 @@ fun draw3DOverlayToBitmap(
         }
 
         if (minXNorm < maxXNorm && minYNorm < maxYNorm) {
-            Log.d(
-                "YML",
-                "Normalized landmark bounds: minXNorm: $minXNorm, minYNorm: $minYNorm, maxXNorm: $maxXNorm, maxYNorm: $maxYNorm"
-            )
-
             val faceRectLeft = minXNorm * imageWidth
             val faceRectTop = minYNorm * imageHeight
             val faceRectRight = maxXNorm * imageWidth
             val faceRectBottom = maxYNorm * imageHeight
-            Log.d(
-                "YML",
-                "FaceRect in pixels: Left: $faceRectLeft, Top: $faceRectTop, Right: $faceRectRight, Bottom: $faceRectBottom"
-            )
 
             val faceWidthOnBitmap = faceRectRight - faceRectLeft
             val faceHeightOnBitmap = faceRectBottom - faceRectTop
@@ -190,20 +180,18 @@ fun draw3DOverlayToBitmap(
             Log.d("YML", "Fixed face size on bitmap: Width: $fixedFaceWidthOnBitmap, Height: $fixedFaceHeightOnBitmap")
 
             /*这里的faceCenter指的是脸的中心点，而不是头的中心点*/
-            val K_yaw_offset = 0.20f // 可根据实际效果调整
-            val K_pitch_offset = 0.20f // 可根据实际效果调整
+            val K_yaw_offset = 0.15f // 可根据实际效果调整
+            val K_pitch_offset = 0.15f // 可根据实际效果调整
             // 注意： offsetX和offsetY的计算逻辑可能需要根据yaw和pitch的实际影响来调整
             // 当前逻辑：yaw和pitch都对X和Y产生影响
-            val offsetX =
-                (yaw * K_yaw_offset * faceWidthOnBitmap) + (pitch * 0.0f * K_yaw_offset * faceWidthOnBitmap) // 示例：pitch对X的影响较小或无
-            val offsetY =
-                (pitch * K_pitch_offset * faceHeightOnBitmap) + (yaw * 0.0f * K_pitch_offset * faceHeightOnBitmap) // 示例：yaw对Y的影响较小或无
+            val offsetX = (yaw * K_yaw_offset * faceWidthOnBitmap)
+            val offsetY = (pitch * K_pitch_offset * faceHeightOnBitmap)
             Log.d("YML", "Calculated offset for center: offsetX: $offsetX, offsetY: $offsetY")
 
             val faceCenterX = faceRectLeft + faceWidthOnBitmap / 2f
             val faceCenterY = faceRectTop + faceHeightOnBitmap / 2f
             val fixedFaceCenterX = faceCenterX + offsetX
-            val fixedFaceCenterY = faceCenterY + offsetY // 注意: Y轴向下为正，如果offsetY是向上偏移，可能需要减去
+            val fixedFaceCenterY = faceCenterY + offsetY
             Log.d("YML", "Original face center (landmark center): faceCenterX: $faceCenterX, faceCenterY: $faceCenterY")
             Log.d("YML", "Fixed face center: fixedFaceCenterX: $fixedFaceCenterX, fixedFaceCenterY: $fixedFaceCenterY")
 
@@ -211,10 +199,6 @@ fun draw3DOverlayToBitmap(
             val bitmapAspectRatio =
                 if (modelImage.height > 0) modelImage.width.toFloat() / modelImage.height.toFloat() else 1f
             val overlayTargetHeight = overlayTargetWidth / bitmapAspectRatio
-            Log.d(
-                "YML",
-                "Width: $overlayTargetWidth, Height: $overlayTargetHeight, AspectRatio: $bitmapAspectRatio"
-            )
 
             // --- MODIFICATION START: 将3D模型的有效像素中心与修正后的面部中心对齐 ---
             // 获取3D模型图像的有效像素中心点（模型自身的局部坐标）
@@ -222,7 +206,8 @@ fun draw3DOverlayToBitmap(
 
             // 检查是否能获取到模型有效中心，以及模型和目标绘制尺寸是否有效
             if (modelEffectiveCenterLocal != null && modelImage.width > 0 && modelImage.height > 0 &&
-                overlayTargetWidth > 0f && overlayTargetHeight > 0f) {
+                overlayTargetWidth > 0f && overlayTargetHeight > 0f
+            ) {
 
                 val localEffCenterX = modelEffectiveCenterLocal.first
                 val localEffCenterY = modelEffectiveCenterLocal.second
@@ -240,9 +225,14 @@ fun draw3DOverlayToBitmap(
                 val destLeft = fixedFaceCenterX - (localEffCenterX * scaleFactorX)
                 val destTop = fixedFaceCenterY - (localEffCenterY * scaleFactorY)
 
-                Log.d("YML", "New 3D model alignment: destLeft: $destLeft, destTop: $destTop. Aligning model effective center to fixed face center.")
-                Log.d("YML_POINTS", "Model local effective center: ($localEffCenterX, $localEffCenterY), Target canvas position for this point: ($fixedFaceCenterX, $fixedFaceCenterY)")
-
+                Log.d(
+                    "YML",
+                    "New 3D model alignment: destLeft: $destLeft, destTop: $destTop. Aligning model effective center to fixed face center."
+                )
+                Log.d(
+                    "YML_POINTS",
+                    "Model local effective center: ($localEffCenterX, $localEffCenterY), Target canvas position for this point: ($fixedFaceCenterX, $fixedFaceCenterY)"
+                )
 
                 // 定义模型在画布上的目标绘制矩形区域
                 val destRect = Rect(
@@ -263,17 +253,26 @@ fun draw3DOverlayToBitmap(
                     val mappedModelEffCenterX = destRect.left + localEffCenterX * scaleFactorX
                     val mappedModelEffCenterY = destRect.top + localEffCenterY * scaleFactorY
                     canvas.drawCircle(mappedModelEffCenterX, mappedModelEffCenterY, pointRadius, greenPaint)
-                    Log.d("YML_POINTS", "Drew Model's Effective Pixel Center (Green) at: ($mappedModelEffCenterX, $mappedModelEffCenterY). This should match Yellow dot.")
+                    Log.d(
+                        "YML_POINTS",
+                        "Drew Model's Effective Pixel Center (Green) at: ($mappedModelEffCenterX, $mappedModelEffCenterY). This should match Yellow dot."
+                    )
 
                     // 绘制3D模型在画布上的边界框几何中心点 (蓝色)
                     // 注意：此点不一定是模型的视觉或有效像素中心
                     val modelBoundingBoxCenterX = destRect.centerX().toFloat()
                     val modelBoundingBoxCenterY = destRect.centerY().toFloat()
                     canvas.drawCircle(modelBoundingBoxCenterX, modelBoundingBoxCenterY, pointRadius, bluePaint)
-                    Log.d("YML_POINTS", "Drew 3D Model Bounding Box Center (Blue) at: ($modelBoundingBoxCenterX, $modelBoundingBoxCenterY)")
+                    Log.d(
+                        "YML_POINTS",
+                        "Drew 3D Model Bounding Box Center (Blue) at: ($modelBoundingBoxCenterX, $modelBoundingBoxCenterY)"
+                    )
 
                 } else {
-                    Log.w("YML", "Destination Rect for model has zero or negative width/height. Skipping model drawing. Rect: $destRect")
+                    Log.w(
+                        "YML",
+                        "Destination Rect for model has zero or negative width/height. Skipping model drawing. Rect: $destRect"
+                    )
                 }
             } else {
                 // 记录无法进行模型对齐和绘制的原因
@@ -394,6 +393,7 @@ private fun fixFaceSize(
 
     return Pair(faceWidthOnCanvasFixed, faceHeightOnCanvasFixed)
 }
+
 /**
  * 计算 Bitmap 中有效（非透明）像素的中心点。
  * @param bitmap 要分析的 Bitmap。

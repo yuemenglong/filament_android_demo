@@ -134,6 +134,8 @@ public class ModelRender {
   private volatile Skybox mSkybox = null;
   private volatile int mLightEntity = 0; // 新增：光源实体ID
 
+  private static final double FOV = 60.0;
+
   // --- gltfio Objects ---
   private volatile AssetLoader mAssetLoader = null;
   private volatile ResourceLoader mResourceLoader = null; // Added ResourceLoader instance
@@ -215,7 +217,7 @@ public class ModelRender {
     mView.setBlendMode(View.BlendMode.TRANSLUCENT);
 
     // Default camera setup (adjust as needed)
-    mCamera.setProjection(60.0, (double) IMAGE_WIDTH / IMAGE_HEIGHT, 0.1, 1000.0, Camera.Fov.VERTICAL);
+    mCamera.setProjection(FOV, (double) IMAGE_WIDTH / IMAGE_HEIGHT, 0.1, 1000.0, Camera.Fov.VERTICAL);
     // Place camera slightly further back or adjust model position/scale later
     mCamera.lookAt(0.0, 1.0, 5.0, // Eye position
       0.0, 0.0, 0.0, // Target position
@@ -848,7 +850,7 @@ public class ModelRender {
   }
 
   @NonNull
-    // 降级为包级私有
+  // 降级为包级私有
   public CompletableFuture<Bitmap> render() {
     // ... (render method remains largely the same as the fixed version from the previous turn) ...
     CompletableFuture<Bitmap> resultFuture = new CompletableFuture<>();

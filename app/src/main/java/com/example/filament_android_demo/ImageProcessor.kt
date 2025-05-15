@@ -2,6 +2,7 @@ package com.example.filament_android_demo
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Rect
 import android.util.Log
@@ -79,9 +80,9 @@ fun drawFaceLandmarksOnBitmap(
  * @return 带有模型覆盖层的新Bitmap
  */
 /*TODO 修改这个函数，将
-*  1. landmark原来的中心点
-*  2. landmark修正后的中心点
-*  3. 3d图的中心点
+* 1. landmark原来的中心点
+* 2. landmark修正后的中心点
+* 3. 3d图的中心点
 * 这三个点以红黄蓝的颜色分别标记出来
 * */
 fun draw3DOverlayToBitmap(
@@ -103,6 +104,21 @@ fun draw3DOverlayToBitmap(
     val resultBitmap = cameraImage.copy(Bitmap.Config.ARGB_8888, true)
     val canvas = Canvas(resultBitmap)
 
+    // 初始化绘制点所需 Paint 对象和半径
+    val pointRadius = 10f // 可以根据需要调整点的大小
+    val redPaint = Paint().apply {
+        color = Color.RED
+        style = Paint.Style.FILL
+    }
+    val yellowPaint = Paint().apply {
+        color = Color.YELLOW
+        style = Paint.Style.FILL
+    }
+    val bluePaint = Paint().apply {
+        color = Color.BLUE
+        style = Paint.Style.FILL
+    }
+
     Log.d("YML", "---------------------------------------------------------------------------")
     val (rot, pos) = if (landmarkResult.facialTransformationMatrixes().isPresent &&
         landmarkResult.facialTransformationMatrixes().get().isNotEmpty()
@@ -120,12 +136,13 @@ fun draw3DOverlayToBitmap(
         val offset = extractOffset(transformationMatrix)
         Pair(Pair(eulerAngles[0], eulerAngles[1]), Pair(offset[0], offset[1]))
     } else {
+        Log.d("YML", "Facial transformation matrix not present or empty.")
         Pair(Pair(0.0f, 0.0f), Pair(0.0f, 0.0f))
     }
     val (pitch, yaw) = rot
-    val (posX, posY) = pos
+    val (posX, posY) = pos // 这些posX, posY是归一化的，范围可能是[-1, 1]或[0,1]，取决于Matrix
     Log.d("YML", "Yaw: $yaw, Pitch: $pitch")
-    Log.d("YML", "posX: $posX, posY: $posY")
+    Log.d("YML", "posX from matrix: $posX, posY from matrix: $posY") // 注意: posX, posY的解释可能需要根据matrix的定义来
 
     Log.d("YML", "imageWidth: $imageWidth, imageHeight: $imageHeight")
 
@@ -144,18 +161,23 @@ fun draw3DOverlayToBitmap(
         }
 
         if (minXNorm < maxXNorm && minYNorm < maxYNorm) {
-            Log.d("YML", "minXNorm: $minXNorm, minYNorm: $minYNorm")
-            Log.d("YML", "maxXNorm: $maxXNorm, maxYNorm: $maxYNorm")
+            Log.d(
+                "YML",
+                "Normalized landmark bounds: minXNorm: $minXNorm, minYNorm: $minYNorm, maxXNorm: $maxXNorm, maxYNorm: $maxYNorm"
+            )
 
             val faceRectLeft = minXNorm * imageWidth
             val faceRectTop = minYNorm * imageHeight
             val faceRectRight = maxXNorm * imageWidth
             val faceRectBottom = maxYNorm * imageHeight
-            Log.d("YML", "faceRectLeft: $faceRectLeft, faceRectRight: $faceRectRight")
-            Log.d("YML", "faceRectTop: $faceRectTop, faceRectBottom: $faceRectBottom")
+            Log.d(
+                "YML",
+                "FaceRect in pixels: Left: $faceRectLeft, Top: $faceRectTop, Right: $faceRectRight, Bottom: $faceRectBottom"
+            )
 
             val faceWidthOnBitmap = faceRectRight - faceRectLeft
             val faceHeightOnBitmap = faceRectBottom - faceRectTop
+            // fixFaceSize 函数的实现未提供，假设它返回修正后的宽高
             val (fixedFaceWidthOnBitmap, fixedFaceHeightOnBitmap) = fixFaceSize(
                 faceWidthOnBitmap.toDouble(),
                 faceHeightOnBitmap.toDouble(),
@@ -163,49 +185,75 @@ fun draw3DOverlayToBitmap(
                 pitch.toDouble()
             )
 
-            Log.d("YML", "faceWidthOnBitmap: $faceWidthOnBitmap, faceHeightOnBitmap: $faceHeightOnBitmap")
-            Log.d(
-                "YML",
-                "fixedFaceWidthOnBitmap: $fixedFaceWidthOnBitmap, fixedFaceHeightOnBitmap: $fixedFaceHeightOnBitmap"
-            )
+            Log.d("YML", "Face size on bitmap: Width: $faceWidthOnBitmap, Height: $faceHeightOnBitmap")
+            Log.d("YML", "Fixed face size on bitmap: Width: $fixedFaceWidthOnBitmap, Height: $fixedFaceHeightOnBitmap")
 
             /*这里的faceCenter指的是脸的中心点，而不是头的中心点*/
             val K_yaw_offset = 0.20f // 可根据实际效果调整
             val K_pitch_offset = 0.20f // 可根据实际效果调整
-            val offsetX = (yaw + pitch * 1.0) * K_yaw_offset * faceWidthOnBitmap
-            val offsetY = (pitch + yaw * 1.0) * K_pitch_offset * faceHeightOnBitmap
-            Log.d("YML", "offsetX: $offsetX, offsetY: $offsetY")
+            // 注意： offsetX和offsetY的计算逻辑可能需要根据yaw和pitch的实际影响来调整
+            // 当前逻辑：yaw和pitch都对X和Y产生影响
+            val offsetX =
+                (yaw * K_yaw_offset * faceWidthOnBitmap) + (pitch * 0.0f * K_yaw_offset * faceWidthOnBitmap) // 示例：pitch对X的影响较小或无
+            val offsetY =
+                (pitch * K_pitch_offset * faceHeightOnBitmap) + (yaw * 0.0f * K_pitch_offset * faceHeightOnBitmap) // 示例：yaw对Y的影响较小或无
+            Log.d("YML", "Calculated offset for center: offsetX: $offsetX, offsetY: $offsetY")
 
             val faceCenterX = faceRectLeft + faceWidthOnBitmap / 2f
             val faceCenterY = faceRectTop + faceHeightOnBitmap / 2f
             val fixedFaceCenterX = faceCenterX + offsetX
-            val fixedFaceCenterY = faceCenterY + offsetY
-            Log.d("YML", "faceCenterX: $faceCenterX, faceCenterY: $faceCenterY")
-            Log.d("YML", "fixedFaceCenterX: $fixedFaceCenterX, fixedFaceCenterY: $fixedFaceCenterY")
+            val fixedFaceCenterY = faceCenterY + offsetY // 注意: Y轴向下为正，如果offsetY是向上偏移，可能需要减去
+            Log.d("YML", "Original face center (landmark center): faceCenterX: $faceCenterX, faceCenterY: $faceCenterY")
+            Log.d("YML", "Fixed face center: fixedFaceCenterX: $fixedFaceCenterX, fixedFaceCenterY: $fixedFaceCenterY")
 
-            val overlayTargetWidth = faceWidthOnBitmap * overlayScaleRelativeToFace
+            val overlayTargetWidth = faceWidthOnBitmap * overlayScaleRelativeToFace // 使用原始宽度计算目标宽度
             val bitmapAspectRatio =
                 if (modelImage.height > 0) modelImage.width.toFloat() / modelImage.height.toFloat() else 1f
             val overlayTargetHeight = overlayTargetWidth / bitmapAspectRatio
-            Log.d("YML", "overlayTargetWidth: $overlayTargetWidth, overlayTargetHeight: $overlayTargetHeight")
+            Log.d(
+                "YML",
+                "Width: $overlayTargetWidth, Height: $overlayTargetHeight, AspectRatio: $bitmapAspectRatio"
+            )
 
-            // 应用横向和纵向补偶
-            val destLeft = (fixedFaceCenterX - overlayTargetWidth / 2f).toInt()
-            val destTop = (fixedFaceCenterY - overlayTargetHeight / 2f).toInt()
-            Log.d("YML", "destLeft: $destLeft, destTop: $destTop")
+            // 应用横向和纵向补偶 (这里使用修正后的中心点来定位模型)
+            val destLeft = (fixedFaceCenterX - overlayTargetWidth / 2f)
+            val destTop = (fixedFaceCenterY - overlayTargetHeight / 2f) // Y轴向下为正
+            Log.d("YML", "3D model destination on canvas: destLeft: $destLeft, destTop: $destTop")
 
             // 绘制模型到原始图像上
             val destRect = Rect(
-                destLeft,
-                destTop,
+                destLeft.toInt(),
+                destTop.toInt(),
                 (destLeft + overlayTargetWidth).toInt(),
                 (destTop + overlayTargetHeight).toInt()
             )
 
             canvas.drawBitmap(modelImage, null, destRect, null)
-        }
-    }
+            Log.d("YML", "3D model drawn to Rect: $destRect")
 
+            // --- 绘制标记点 ---
+            // 1. landmark原来的中心点 (红色)
+            canvas.drawCircle(faceCenterX, faceCenterY, pointRadius, redPaint)
+            Log.d("YML_POINTS", "Drew Original Landmark Center (Red) at: ($faceCenterX, $faceCenterY)")
+
+            // 2. landmark修正后的中心点 (黄色)
+            canvas.drawCircle(fixedFaceCenterX, fixedFaceCenterY, pointRadius, yellowPaint)
+            Log.d("YML_POINTS", "Drew Corrected Landmark Center (Yellow) at: ($fixedFaceCenterX, $fixedFaceCenterY)")
+
+            // 3. 3d图的中心点 (蓝色)
+            val modelCenterX = destRect.centerX().toFloat()
+            val modelCenterY = destRect.centerY().toFloat()
+            canvas.drawCircle(modelCenterX, modelCenterY, pointRadius, bluePaint)
+            Log.d("YML_POINTS", "Drew 3D Model Center (Blue) at: ($modelCenterX, $modelCenterY)")
+            // --- 标记点绘制结束 ---
+
+        } else {
+            Log.w("YML", "Calculated landmark bounds are invalid (min >= max). Skipping overlay and point drawing.")
+        }
+    } else {
+        Log.w("YML", "No face landmarks found in the result. Skipping overlay and point drawing.")
+    }
+    Log.d("YML", "---------------------------------------------------------------------------")
     return resultBitmap
 }
 

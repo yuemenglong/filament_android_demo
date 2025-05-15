@@ -453,8 +453,19 @@ fun CameraPreviewWithLandmarks(
             if (bitmapWithLandmarks == null) {
                 bitmapWithLandmarks = cameraBitmap
             }
+            var bitmapWith3D = bitmapWithLandmarks
+            if (overlayEnabled && overlayBitmap != null) {
+                bitmapWith3D = draw3DOverlayToBitmap(
+                    cameraImage = bitmapWithLandmarks,
+                    modelImage = overlayBitmap,
+                    landmarkResult = landmarkResult,
+                )
+            }
+            if (bitmapWith3D == null) {
+                bitmapWith3D = bitmapWithLandmarks
+            }
             Image(
-                bitmap = bitmapWithLandmarks.asImageBitmap(),
+                bitmap = bitmapWith3D.asImageBitmap(),
                 contentDescription = "Camera Preview",
                 modifier = Modifier.fillMaxSize()
             )

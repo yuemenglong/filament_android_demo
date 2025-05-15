@@ -2,14 +2,12 @@ package com.example.filament_android_demo
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Rect
 import android.util.Log
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarkerResult
 import kotlin.math.abs
 import kotlin.math.cos
-import kotlin.math.max
 
 /**
  * 将面部特征点绘制到原始图像上，返回一个新的Bitmap
@@ -25,7 +23,7 @@ fun drawFaceLandmarksOnBitmap(
     if (originalBitmap == null || landmarkResult == null || landmarkResult.faceLandmarks().isEmpty()) {
         return originalBitmap
     }
-    
+
     // 创建一个可变的原始图像副本
     val resultBitmap = originalBitmap.copy(Bitmap.Config.ARGB_8888, true)
     val canvas = Canvas(resultBitmap)
@@ -39,10 +37,10 @@ fun drawFaceLandmarksOnBitmap(
         strokeWidth = 6f
         style = Paint.Style.FILL
     }
-    
+
     val imageWidth = originalBitmap.width
     val imageHeight = originalBitmap.height
-    
+
     landmarkResult.faceLandmarks().forEach { landmarks ->
         // 绘制连接线
         com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarker.FACE_LANDMARKS_CONNECTORS.forEach { connector ->
@@ -51,16 +49,16 @@ fun drawFaceLandmarksOnBitmap(
             if (startIdx >= 0 && startIdx < landmarks.size && endIdx >= 0 && endIdx < landmarks.size) {
                 val start = landmarks[startIdx]
                 val end = landmarks[endIdx]
-                
+
                 val startX = start.x() * imageWidth
                 val startY = start.y() * imageHeight
                 val endX = end.x() * imageWidth
                 val endY = end.y() * imageHeight
-                
+
                 canvas.drawLine(startX, startY, endX, endY, paint)
             }
         }
-        
+
         // 绘制特征点
         landmarks.forEach { landmark ->
             val x = landmark.x() * imageWidth
@@ -68,35 +66,37 @@ fun drawFaceLandmarksOnBitmap(
             canvas.drawCircle(x, y, 2f, pointPaint)
         }
     }
-    
+
     return resultBitmap
 }
 
 /**
  * 将 3D 模型 overlay（Bitmap）绘制到原始图像上，返回一个新的Bitmap
- * @param originalBitmap 原始图像
+ * @param cameraImage 原始图像
  * @param modelImage 3D模型图像
  * @param landmarkResult 面部特征点结果
  * @param overlayScaleRelativeToFace 相对于面部的比例系数
  * @return 带有模型覆盖层的新Bitmap
  */
 fun draw3DOverlayToBitmap(
-    originalBitmap: Bitmap?,
+    cameraImage: Bitmap?,
     modelImage: Bitmap?,
     landmarkResult: FaceLandmarkerResult?,
     overlayScaleRelativeToFace: Float = 1.8f
 ): Bitmap? {
-    if (originalBitmap == null || modelImage == null || landmarkResult == null || landmarkResult.faceLandmarks().isEmpty()) {
-        return originalBitmap
+    if (cameraImage == null || modelImage == null || landmarkResult == null || landmarkResult.faceLandmarks()
+            .isEmpty()
+    ) {
+        return cameraImage
     }
-    
-    val imageWidth = originalBitmap.width
-    val imageHeight = originalBitmap.height
-    
+
+    val imageWidth = cameraImage.width
+    val imageHeight = cameraImage.height
+
     // 创建一个可变的原始图像副本
-    val resultBitmap = originalBitmap.copy(Bitmap.Config.ARGB_8888, true)
+    val resultBitmap = cameraImage.copy(Bitmap.Config.ARGB_8888, true)
     val canvas = Canvas(resultBitmap)
-    
+
     Log.d("YML", "---------------------------------------------------------------------------")
     val (rot, pos) = if (landmarkResult.facialTransformationMatrixes().isPresent &&
         landmarkResult.facialTransformationMatrixes().get().isNotEmpty()
@@ -120,9 +120,9 @@ fun draw3DOverlayToBitmap(
     val (posX, posY) = pos
     Log.d("YML", "Yaw: $yaw, Pitch: $pitch")
     Log.d("YML", "posX: $posX, posY: $posY")
-    
+
     Log.d("YML", "imageWidth: $imageWidth, imageHeight: $imageHeight")
-    
+
     val allLandmarks = landmarkResult.faceLandmarks().firstOrNull()
     if (allLandmarks != null && allLandmarks.isNotEmpty()) {
         var minXNorm = Float.MAX_VALUE
@@ -140,7 +140,7 @@ fun draw3DOverlayToBitmap(
         if (minXNorm < maxXNorm && minYNorm < maxYNorm) {
             Log.d("YML", "minXNorm: $minXNorm, minYNorm: $minYNorm")
             Log.d("YML", "maxXNorm: $maxXNorm, maxYNorm: $maxYNorm")
-            
+
             val faceRectLeft = minXNorm * imageWidth
             val faceRectTop = minYNorm * imageHeight
             val faceRectRight = maxXNorm * imageWidth
@@ -158,7 +158,10 @@ fun draw3DOverlayToBitmap(
             )
 
             Log.d("YML", "faceWidthOnBitmap: $faceWidthOnBitmap, faceHeightOnBitmap: $faceHeightOnBitmap")
-            Log.d("YML", "fixedFaceWidthOnBitmap: $fixedFaceWidthOnBitmap, fixedFaceHeightOnBitmap: $fixedFaceHeightOnBitmap")
+            Log.d(
+                "YML",
+                "fixedFaceWidthOnBitmap: $fixedFaceWidthOnBitmap, fixedFaceHeightOnBitmap: $fixedFaceHeightOnBitmap"
+            )
 
             /*这里的faceCenter指的是脸的中心点，而不是头的中心点*/
 
@@ -188,7 +191,7 @@ fun draw3DOverlayToBitmap(
             val destLeft = (fixedFaceCenterX - overlayTargetWidth / 2f).toInt()
             val destTop = (fixedFaceCenterY - overlayTargetHeight / 2f).toInt()
             Log.d("YML", "destLeft: $destLeft, destTop: $destTop")
-            
+
             // 绘制模型到原始图像上
             val destRect = Rect(
                 destLeft,
@@ -196,11 +199,11 @@ fun draw3DOverlayToBitmap(
                 (destLeft + overlayTargetWidth).toInt(),
                 (destTop + overlayTargetHeight).toInt()
             )
-            
+
             canvas.drawBitmap(modelImage, null, destRect, null)
         }
     }
-    
+
     return resultBitmap
 }
 

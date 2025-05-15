@@ -430,13 +430,57 @@ public class ModelRender {
         // 2. Apply Rotation (if matrix exists)
         boolean rotationApplied = false;
         if (finalFaceTransformMatrix != null) {
-          // Convert matrix to Euler angles
-          float[] eulerAngles = matrixToEulerAnglesZYX(finalFaceTransformMatrix);
-          // Apply rotation to the Head entity
-          rotationApplied = rotateInternal(headName, -eulerAngles[0], -eulerAngles[1], -eulerAngles[2]);
-          if (!rotationApplied) {
-            Log.e(TAG, "Render task: Failed to apply rotation.");
-          }
+            int headEntityId = findEntityByNameInternal(headName);
+            if (headEntityId != Entity.NULL) {
+                TransformManager tm = mEngine.getTransformManager();
+                if (tm.hasComponent(headEntityId)) {
+                    int headInstance = tm.getInstance(headEntityId);
+                    float[] initialHeadTransform = mEntityInitialTransforms.get(headName);
+
+                    if (initialHeadTransform != null) {
+                        // 创建一个仅包含MediaPipe矩阵旋转部分的4x4矩阵
+                        float[] rotationFromMediaPipe = new float[16];
+                        android.opengl.Matrix.setIdentityM(rotationFromMediaPipe, 0);
+
+                        // 复制3x3旋转部分 (finalFaceTransformMatrix 是列主序)
+                        // R1C1, R2C1, R3C1
+                        rotationFromMediaPipe[0] = finalFaceTransformMatrix[0];
+                        rotationFromMediaPipe[1] = finalFaceTransformMatrix[1];
+                        rotationFromMediaPipe[2] = finalFaceTransformMatrix[2];
+                        // rotationFromMediaPipe[3] = 0; (来自 Identity)
+
+                        // R1C2, R2C2, R3C2
+                        rotationFromMediaPipe[4] = finalFaceTransformMatrix[4];
+                        rotationFromMediaPipe[5] = finalFaceTransformMatrix[5];
+                        rotationFromMediaPipe[6] = finalFaceTransformMatrix[6];
+                        // rotationFromMediaPipe[7] = 0; (来自 Identity)
+
+                        // R1C3, R2C3, R3C3
+                        rotationFromMediaPipe[8] = finalFaceTransformMatrix[8];
+                        rotationFromMediaPipe[9] = finalFaceTransformMatrix[9];
+                        rotationFromMediaPipe[10] = finalFaceTransformMatrix[10];
+                        // rotationFromMediaPipe[11] = 0; (来自 Identity)
+
+                        // rotationFromMediaPipe[12] = 0; (来自 Identity)
+                        // rotationFromMediaPipe[13] = 0; (来自 Identity)
+                        // rotationFromMediaPipe[14] = 0; (来自 Identity)
+                        // rotationFromMediaPipe[15] = 1; (来自 Identity)
+
+                        // 计算新的局部变换: M_newLocal = M_initialLocal * R_mediaPipe
+                        float[] newHeadLocalTransform = new float[16];
+                        android.opengl.Matrix.multiplyMM(newHeadLocalTransform, 0, initialHeadTransform, 0, rotationFromMediaPipe, 0);
+                        
+                        tm.setTransform(headInstance, newHeadLocalTransform);
+                        rotationApplied = true;
+                    } else {
+                        Log.e(TAG, "Render task: Initial transform for '" + headName + "' not found.");
+                    }
+                } else {
+                    Log.e(TAG, "Render task: Entity '" + headName + "' has no Transform component.");
+                }
+            } else {
+                Log.e(TAG, "Render task: Entity '" + headName + "' not found.");
+            }
         }
 
         // 3. Update Bone Matrices (if rotation was applied)
@@ -489,57 +533,6 @@ public class ModelRender {
         Log.e(TAG, "Error in applyLandmarkResultAndRender chain", ex);
         throw new RuntimeException(ex);
       });
-  }
-
-  /**
-   * Converts a 4x4 rotation matrix (in OpenGL column-major format) to Euler angles
-   * using the ZYX convention (intrinsic rotation).
-   * Note: This implementation assumes the input matrix is purely rotation or affine
-   * transformation where the upper-left 3x3 is a valid rotation matrix.
-   *
-   * @param matrix The 4x4 rotation matrix (float[16]).
-   * @return A float[3] array containing {angleX, angleY, angleZ} in radians.
-   */
-  private float[] matrixToEulerAnglesZYX(float[] matrix) {
-    // Based on http://www.euclideanspace.com/maths/geometry/rotations/conversions/matrixToEuler/index.htm
-    // and checking common ZYX implementations. Assumes matrix is column-major.
-    // matrix[col*4 + row]
-
-    float m00 = matrix[0]; // R11
-    float m01 = matrix[1]; // R21
-    float m02 = matrix[2]; // R31
-
-    float m10 = matrix[4]; // R12
-    float m11 = matrix[5]; // R22
-    float m12 = matrix[6]; // R32
-
-    float m20 = matrix[8];  // R13
-    float m21 = matrix[9];  // R23
-    float m22 = matrix[10]; // R33
-
-    float angleY, angleZ, angleX;
-
-    // Calculate Y-axis rotation (Pitch)
-    angleY = (float) -Math.asin(Math.max(-1.0f, Math.min(1.0f, m20))); // -asin(R13)
-
-    // Check for gimbal lock (when cos(angleY) is close to 0)
-    if (Math.abs(Math.cos(angleY)) > 1e-6) {
-      // Not in gimbal lock
-      // Calculate X-axis rotation (Roll)
-      angleX = (float) Math.atan2(m21, m22); // atan2(R23, R33)
-      // Calculate Z-axis rotation (Yaw)
-      angleZ = (float) Math.atan2(m10, m00); // atan2(R12, R11)
-    } else {
-      // Gimbal lock
-      Log.w(TAG, "Gimbal lock detected during Euler angle conversion.");
-      // Assume Z = 0 (standard convention)
-      angleZ = 0.0f;
-      // Calculate X-axis rotation (Roll) based on the remaining elements
-      angleX = (float) Math.atan2(-m12, m11); // atan2(-R32, R22)
-    }
-
-    // Return in {X, Y, Z} order for the rotate function
-    return new float[]{angleX, angleY, angleZ};
   }
 
   /**

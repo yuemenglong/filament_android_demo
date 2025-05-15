@@ -71,6 +71,10 @@ class MainActivity : ComponentActivity() {
   private val _landmarkResult = mutableStateOf<FaceLandmarkerResult?>(null)
   val landmarkResult: State<FaceLandmarkerResult?> = _landmarkResult
 
+  // Compose State for Camera Bitmap
+  private val _cameraBitmap = mutableStateOf<Bitmap?>(null)
+  val cameraBitmap: State<Bitmap?> = _cameraBitmap
+
   // State for overlay switch
   private val _overlayEnabled = mutableStateOf(false)
 
@@ -118,6 +122,7 @@ class MainActivity : ComponentActivity() {
         _landmarkResult.value = resultBundle.result
         _imageWidth.value = resultBundle.inputImageWidth
         _imageHeight.value = resultBundle.inputImageHeight
+        _cameraBitmap.value = resultBundle.cameraImage
         Log.d("MainActivity", "onResults from MediaPipeProcessor: Timestamp ${resultBundle.result.timestampMs()}")
       }
     }
@@ -147,7 +152,8 @@ class MainActivity : ComponentActivity() {
             landmarkResult = landmarkResult.value,
             imageWidth = imageWidth.value,
             imageHeight = imageHeight.value,
-            overlayEnabled = _overlayEnabled // Pass the state
+            overlayEnabled = _overlayEnabled, // Pass the state
+            cameraBitmap = cameraBitmap.value
           )
         }
       }
@@ -201,7 +207,8 @@ fun MainScreen(
   landmarkResult: FaceLandmarkerResult?,
   imageWidth: Int,
   imageHeight: Int,
-  overlayEnabled: State<Boolean> // Receive state
+  overlayEnabled: State<Boolean>, // Receive state
+  cameraBitmap: Bitmap? // 新增相机预览图像
 ) {
   val context = LocalContext.current
   var showDialog by remember { mutableStateOf(false) }
@@ -285,7 +292,8 @@ fun MainScreen(
           imageWidth = imageWidth,
           imageHeight = imageHeight,
           overlayBitmap = overlayBitmap, // Pass bitmap
-          overlayEnabled = currentOverlayEnabled  // Pass boolean state
+          overlayEnabled = currentOverlayEnabled,  // Pass boolean state
+          cameraBitmap = cameraBitmap // Pass camera bitmap
         )
       } else {
         Column(
@@ -418,7 +426,8 @@ fun CameraPreviewWithLandmarks(
   imageWidth: Int,
   imageHeight: Int,
   overlayBitmap: Bitmap?,
-  overlayEnabled: Boolean
+  overlayEnabled: Boolean,
+  cameraBitmap: Bitmap? // 新增相机预览图像
 ) {
   val lifecycleOwner = LocalLifecycleOwner.current
   val context = LocalContext.current
@@ -435,29 +444,13 @@ fun CameraPreviewWithLandmarks(
       scaleFactor = max(overlayWidth * 1f / imageWidth, overlayHeight * 1f / imageHeight)
     }
   }) {
-    AndroidView(
-      factory = { ctx ->
-        PreviewView(ctx).apply {
-          layoutParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.MATCH_PARENT
-          )
-          scaleType = PreviewView.ScaleType.FILL_CENTER
-          implementationMode = PreviewView.ImplementationMode.COMPATIBLE
-          localPreviewView = this
-        }
-      },
-      modifier = Modifier.fillMaxSize()
-    )
-
-    LaunchedEffect(mediaPipeProcessor, localPreviewView) {
-      val pv = localPreviewView
-      if (pv != null) {
-        mediaPipeProcessor.setPreviewSurfaceProvider(pv.surfaceProvider)
-        Log.d("CameraPreviewWithLandmarks", "SurfaceProvider SET successfully via MediaPipeProcessor.")
-      } else {
-        Log.d("CameraPreviewWithLandmarks", "SurfaceProvider NOT set: localPreviewView is null")
-      }
+    // Display camera preview using Image composable
+    if (cameraBitmap != null) {
+      Image(
+        bitmap = cameraBitmap.asImageBitmap(),
+        contentDescription = "Camera Preview",
+        modifier = Modifier.fillMaxSize()
+      )
     }
 
     Canvas(modifier = Modifier.fillMaxSize()) {

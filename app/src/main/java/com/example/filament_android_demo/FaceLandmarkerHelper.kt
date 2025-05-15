@@ -167,7 +167,7 @@ class FaceLandmarkerHelper(
                 imageProxy.height,
                 Bitmap.Config.ARGB_8888
             )
-        this.cameraImage = bitmapBuffer
+
         imageProxy.use { bitmapBuffer.copyPixelsFromBuffer(imageProxy.planes[0].buffer) }
         imageProxy.close()
 
@@ -189,6 +189,7 @@ class FaceLandmarkerHelper(
             bitmapBuffer, 0, 0, bitmapBuffer.width, bitmapBuffer.height,
             matrix, true
         )
+        cameraImage = rotatedBitmap
 
         // Convert the input Bitmap object to an MPImage object to run inference
         val mpImage = BitmapImageBuilder(rotatedBitmap).build()

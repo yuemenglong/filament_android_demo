@@ -69,9 +69,10 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/* 已实现 TODO:
- * 1. 移除不必要的日志
- * 2. 除了init/applyLandmarkResult/render做成public，其他的所有方法都降级为private
+/*
+TODO
+重构，将比较长的函数拆分为小一点的
+但是保持现有的所有函数签名不变，可以拆分出小函数
  */
 
 public class ModelRender {

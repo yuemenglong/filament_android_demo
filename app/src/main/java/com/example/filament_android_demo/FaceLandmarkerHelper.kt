@@ -48,6 +48,9 @@ class FaceLandmarkerHelper(
     // If the Face Landmarker will not change, a lazy val would be preferable.
     private var faceLandmarker: FaceLandmarker? = null
 
+    // Add property declaration
+    private var cameraImage: Bitmap? = null
+
     init {
         setupFaceLandmarker()
     }
@@ -164,6 +167,7 @@ class FaceLandmarkerHelper(
                 imageProxy.height,
                 Bitmap.Config.ARGB_8888
             )
+        this.cameraImage = bitmapBuffer
         imageProxy.use { bitmapBuffer.copyPixelsFromBuffer(imageProxy.planes[0].buffer) }
         imageProxy.close()
 
@@ -317,7 +321,8 @@ class FaceLandmarkerHelper(
                 landmarkResult,
                 inferenceTimeMs,
                 image.height,
-                image.width
+                image.width,
+                image,
             )
         }
 
@@ -348,7 +353,8 @@ class FaceLandmarkerHelper(
                     result,
                     inferenceTime,
                     input.height,
-                    input.width
+                    input.width,
+                    cameraImage,
                 )
             )
         }
@@ -384,6 +390,7 @@ class FaceLandmarkerHelper(
         val inferenceTime: Long,
         val inputImageHeight: Int,
         val inputImageWidth: Int,
+        val cameraImage: Bitmap?,
     )
 
     data class VideoResultBundle(
@@ -400,3 +407,4 @@ class FaceLandmarkerHelper(
         fun onEmpty() {}
     }
 }
+

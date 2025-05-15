@@ -578,7 +578,6 @@ public class ModelRender {
     return true;
   }
 
-
   // --- loadModel refactored parts START ---
   private void removePreviousAssetInternal() {
     if (mCurrentAsset != null) {
@@ -1176,50 +1175,6 @@ public class ModelRender {
     }
     return releaseFuture;
   }
-
-
-  // --- rotate() refactored parts START ---
-  private void performRotateOnRenderThread(@NonNull String entityName, float x, float y, float z, @NonNull CompletableFuture<Boolean> resultFuture) {
-    try {
-      if (!rotateInternal(entityName, x, y, z)) {
-        // rotateInternal already logs specific errors
-        resultFuture.complete(false);
-        return;
-      }
-      Log.i(TAG, "Successfully set absolute rotation for entity '" + entityName + "'.");
-      resultFuture.complete(true);
-    } catch (Exception e) {
-      Log.e(TAG, "Exception while rotating entity '" + entityName + "' on render thread: ", e);
-      resultFuture.completeExceptionally(e);
-    }
-  }
-  // --- rotate() refactored parts END ---
-
-  @NonNull
-  private CompletableFuture<Boolean> rotate(@NonNull String entityName, float x, float y, float z) {
-    CompletableFuture<Boolean> resultFuture = new CompletableFuture<>();
-
-    if (mIsCleanedUp.get()) {
-      resultFuture.completeExceptionally(new IllegalStateException("Renderer已清理，无法旋转实体。"));
-      return resultFuture;
-    }
-    if (!mIsInitialized.get()) {
-      resultFuture.completeExceptionally(new IllegalStateException("Renderer未初始化，无法旋转实体。"));
-      return resultFuture;
-    }
-    if (mRenderExecutor == null || mRenderExecutor.isShutdown()) {
-      resultFuture.completeExceptionally(new IllegalStateException("渲染线程不可用。"));
-      return resultFuture;
-    }
-
-    mRenderExecutor.submit(() -> performRotateOnRenderThread(entityName, x, y, z, resultFuture));
-    return resultFuture;
-  }
-
-
-  // `cleanupInternal` and `shutdownExecutorService` were part of an older structure and seem superseded by `release` and `cleanupFilamentResourcesInternal`.
-  // If they were intended for a different purpose, their refactoring would depend on that.
-  // For now, focusing on `cleanupFilamentResourcesInternal` as the main cleanup worker.
 
   // --- cleanupFilamentResourcesInternal refactored parts START ---
   private void destroyAssetAndLoadersInternal() {

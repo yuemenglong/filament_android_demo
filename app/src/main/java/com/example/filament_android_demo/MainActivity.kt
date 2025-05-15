@@ -1,6 +1,7 @@
 package com.example.filament_android_demo
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.os.Bundle
@@ -217,28 +218,27 @@ fun MainScreen(
     cameraBitmap: Bitmap?
 ) {
     val context = LocalContext.current
-    var showDialog by remember { mutableStateOf(false) }
     var showDebugImagesDialog by remember { mutableStateOf(false) }
-    var renderedBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var isLoading by remember { mutableStateOf(false) }
-
-    // Debug images states
-    var image1DebugBitmap by remember { mutableStateOf<Bitmap?>(null) } // Original + Landmarks
-    var image2DebugBitmap by remember { mutableStateOf<Bitmap?>(null) } // 3D Model
-    var image3DebugBitmap by remember { mutableStateOf<Bitmap?>(null) } // Original + Landmarks + 3D Model
-    var hasCameraPermission by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.CAMERA
-            ) == PackageManager.PERMISSION_GRANTED
-        )
-    }
-    val currentOverlayEnabled by overlayEnabled
     var overlayBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var isOverlayLoading by remember { mutableStateOf(false) }
+    var hasCameraPermission by remember { mutableStateOf(false) }
 
-    // LaunchedEffect for real-time overlay rendering
+    // Debug image states
+    var image1DebugBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var image2DebugBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var image3DebugBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var isLoading by remember { mutableStateOf(false) }
+
+    val currentOverlayEnabled by overlayEnabled
+
+    LaunchedEffect(Unit) {
+        hasCameraPermission = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    // Handle real-time overlay rendering
     LaunchedEffect(landmarkResult, currentOverlayEnabled, isRendererReady) {
         if (currentOverlayEnabled && isRendererReady) {
             if (landmarkResult != null) {
@@ -264,30 +264,15 @@ fun MainScreen(
                         }
                     }
             } else {
-                if (overlayBitmap != null) {
-                    overlayBitmap = null
-                    Log.d("MainScreen", "Overlay: No landmark result, clearing overlay bitmap.")
-                }
-                if (isOverlayLoading) {
-                    isOverlayLoading = false
-                }
+                overlayBitmap = null
+                isOverlayLoading = false
+                Log.d("MainScreen", "Overlay: No landmark result, clearing overlay bitmap.")
             }
         } else if (!currentOverlayEnabled) {
-            if (overlayBitmap != null) {
-                overlayBitmap = null
-                Log.d("MainScreen", "Overlay: Disabled, clearing overlay bitmap.")
-            }
-            if (isOverlayLoading) {
-                isOverlayLoading = false
-            }
+            overlayBitmap = null
+            isOverlayLoading = false
+            Log.d("MainScreen", "Overlay: Disabled, clearing overlay bitmap.")
         }
-    }
-
-    LaunchedEffect(Unit) {
-        hasCameraPermission = ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.CAMERA
-        ) == PackageManager.PERMISSION_GRANTED
     }
 
     Column(modifier = modifier.fillMaxSize()) {
@@ -302,203 +287,60 @@ fun MainScreen(
                     landmarkResult = landmarkResult,
                     imageWidth = imageWidth,
                     imageHeight = imageHeight,
-                    overlayBitmap = overlayBitmap, // Pass bitmap
-                    overlayEnabled = currentOverlayEnabled,  // Pass boolean state
-                    cameraBitmap = cameraBitmap // Pass camera bitmap
+                    overlayBitmap = overlayBitmap,
+                    overlayEnabled = currentOverlayEnabled,
+                    cameraBitmap = cameraBitmap
                 )
             } else {
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text("Camera permission needed to show live preview.")
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Button(onClick = onCheckCameraPermission) {
-                        Text("Grant Permission")
-                    }
-                }
+                CameraPermissionContent(onCheckCameraPermission = onCheckCameraPermission)
             }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text("Enable 3D Model Overlay")
-            Switch(
-                checked = currentOverlayEnabled,
-                onCheckedChange = {
-                    (overlayEnabled as? MutableState<Boolean>)?.value = it
-                    if (!it) { // If turning off, clear the overlay bitmap immediately
-                        overlayBitmap = null
+        ControlPanel(
+            currentOverlayEnabled = currentOverlayEnabled,
+            overlayEnabled = overlayEnabled,
+            isRendererReady = isRendererReady,
+            isLoading = isLoading,
+            onCaptureClick = {
+                handleCaptureClick(
+                    context = context,
+                    isRendererReady = isRendererReady,
+                    isLoading = isLoading,
+                    setLoading = { isLoading = it },
+                    landmarkResult = landmarkResult,
+                    cameraBitmap = cameraBitmap,
+                    renderer = renderer,
+                    onDebugImagesGenerated = { img1, img2, img3 ->
+                        image1DebugBitmap = img1
+                        image2DebugBitmap = img2
+                        image3DebugBitmap = img3
+                        showDebugImagesDialog = true
                     }
-                }
-            )
-        }
-
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text("Click '拍摄' for Filament render.")
-            Button(
-                onClick = {
-                    if (!isRendererReady) {
-                        Toast.makeText(context, "Renderer not ready!", Toast.LENGTH_SHORT).show()
-                        return@Button
-                    }
-                    if (isLoading) return@Button
-
-                    isLoading = true
-                    // Clear all previous bitmaps
-                    renderedBitmap = null
-                    image1DebugBitmap = null
-                    image2DebugBitmap = null
-                    image3DebugBitmap = null
-
-                    // Cache current landmarkResult and cameraBitmap
-                    val resultToApply = landmarkResult
-                    val currentCameraBitmap = cameraBitmap
-
-                    Log.d("MainScreen", "拍摄按钮点击，开始生成调试图像...")
-
-                    // Generate Image 2 (3D Model) first
-                    renderer.applyLandmarkResultAndRender(resultToApply)
-                        .handle { bitmap, throwable ->
-                            (context as? ComponentActivity)?.runOnUiThread {
-                                isLoading = false
-                                if (throwable != null) {
-                                    val cause = if (throwable is CompletionException) throwable.cause
-                                        ?: throwable else throwable
-                                    Log.e("MainScreen", "3D Model rendering failed", cause)
-                                    Toast.makeText(
-                                        context,
-                                        "渲染失败: ${cause.message ?: "未知错误"}",
-                                        Toast.LENGTH_LONG
-                                    ).show()
-                                } else if (bitmap != null) {
-                                    Log.d("MainScreen", "3D Model (Image 2) rendered successfully.")
-                                    image2DebugBitmap = bitmap
-
-                                    // Generate Image 1 (Original + Landmarks)
-                                    if (currentCameraBitmap != null && resultToApply != null) {
-                                        image1DebugBitmap = drawFaceLandmarksOnBitmap(
-                                            originalBitmap = currentCameraBitmap,
-                                            landmarkResult = resultToApply
-                                        )
-                                        Log.d("MainScreen", "Original + Landmarks (Image 1) generated.")
-
-                                        // Generate Image 3 (Original + Landmarks + 3D Model)
-                                        if (image1DebugBitmap != null) {
-                                            image3DebugBitmap = draw3DOverlayToBitmap(
-                                                cameraImage = image1DebugBitmap,
-                                                modelImage = image2DebugBitmap,
-                                                landmarkResult = resultToApply,
-                                                overlayScaleRelativeToFace = 1.0f
-                                            )
-                                            Log.d("MainScreen", "Combined image (Image 3) generated.")
-                                        }
-                                    }
-
-                                    // Show the debug images dialog
-                                    showDebugImagesDialog = true
-                                } else {
-                                    Log.e("MainScreen", "3D Model rendering completed but bitmap was null.")
-                                }
-                            }
-                        }
-                },
-                enabled = isRendererReady && !isLoading
-            ) {
-                if (isLoading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onPrimary
-                    )
-                } else {
-                    Text("拍摄 (Capture Filament)")
+                )
+            },
+            onOverlayChange = { enabled ->
+                (overlayEnabled as? MutableState<Boolean>)?.value = enabled
+                if (!enabled) {
+                    overlayBitmap = null
                 }
             }
-        }
+        )
+    }
 
-        // Debug Images Dialog
-        if (showDebugImagesDialog) {
-            AlertDialog(
-                onDismissRequest = {
-                    showDebugImagesDialog = false
-                    image1DebugBitmap = null
-                    image2DebugBitmap = null
-                    image3DebugBitmap = null
-                },
-                title = { Text("调试图像 Debug Images") },
-                text = {
-                    Column(
-                        modifier = Modifier
-                            .padding(8.dp)
-                            .verticalScroll(rememberScrollState())
-                    ) {
-                        Text("1. 原始图像 + 特征点", style = MaterialTheme.typography.titleMedium)
-                        image1DebugBitmap?.let { img ->
-                            Image(
-                                bitmap = img.asImageBitmap(),
-                                contentDescription = "Original + Landmarks",
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .aspectRatio(img.width.toFloat() / img.height.toFloat())
-                                    .padding(vertical = 4.dp)
-                                    .border(1.dp, Color.Gray)
-                            )
-                        } ?: Text("图像1未生成", modifier = Modifier.padding(vertical = 4.dp))
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        Text("2. 3D模型渲染", style = MaterialTheme.typography.titleMedium)
-                        image2DebugBitmap?.let { img ->
-                            Image(
-                                bitmap = img.asImageBitmap(),
-                                contentDescription = "3D Model",
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .aspectRatio(img.width.toFloat() / img.height.toFloat())
-                                    .padding(vertical = 4.dp)
-                                    .border(1.dp, Color.Gray)
-                            )
-                        } ?: Text("图像2未生成", modifier = Modifier.padding(vertical = 4.dp))
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        Text("3. 原始图像 + 特征点 + 3D模型", style = MaterialTheme.typography.titleMedium)
-                        image3DebugBitmap?.let { img ->
-                            Image(
-                                bitmap = img.asImageBitmap(),
-                                contentDescription = "Combined Image",
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .aspectRatio(img.width.toFloat() / img.height.toFloat())
-                                    .padding(vertical = 4.dp)
-                                    .border(1.dp, Color.Gray)
-                            )
-                        } ?: Text("图像3未生成", modifier = Modifier.padding(vertical = 4.dp))
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = {
-                        showDebugImagesDialog = false
-                        image1DebugBitmap = null
-                        image2DebugBitmap = null
-                        image3DebugBitmap = null
-                    }) { Text("关闭") }
-                }
-            )
-        }
+    if (showDebugImagesDialog) {
+        DebugImagesDialog(
+            image1DebugBitmap = image1DebugBitmap,
+            image2DebugBitmap = image2DebugBitmap,
+            image3DebugBitmap = image3DebugBitmap,
+            onDismiss = {
+                showDebugImagesDialog = false
+                image1DebugBitmap = null
+                image2DebugBitmap = null
+                image3DebugBitmap = null
+            }
+        )
     }
 }
 
@@ -566,4 +408,195 @@ fun CameraPreviewWithLandmarks(
 //      }
 //    }
     }
+}
+
+@Composable
+fun CameraPermissionContent(onCheckCameraPermission: () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text("Camera permission needed to show live preview.")
+        Spacer(modifier = Modifier.height(8.dp))
+        Button(onClick = onCheckCameraPermission) {
+            Text("Grant Permission")
+        }
+    }
+}
+
+@Composable
+fun ControlPanel(
+    currentOverlayEnabled: Boolean,
+    overlayEnabled: State<Boolean>,
+    isRendererReady: Boolean,
+    isLoading: Boolean,
+    onCaptureClick: () -> Unit,
+    onOverlayChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text("Enable 3D Model Overlay")
+        Switch(
+            checked = currentOverlayEnabled,
+            onCheckedChange = onOverlayChange
+        )
+    }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text("Click '拍摄' for Filament render.")
+        Button(
+            onClick = onCaptureClick,
+            enabled = isRendererReady && !isLoading
+        ) {
+            if (isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(24.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
+            } else {
+                Text("拍摄 (Capture Filament)")
+            }
+        }
+    }
+}
+
+@Composable
+fun DebugImagesDialog(
+    image1DebugBitmap: Bitmap?,
+    image2DebugBitmap: Bitmap?,
+    image3DebugBitmap: Bitmap?,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("调试图像 Debug Images") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .padding(8.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Text("1. 原始图像 + 特征点", style = MaterialTheme.typography.titleMedium)
+                image1DebugBitmap?.let { img ->
+                    Image(
+                        bitmap = img.asImageBitmap(),
+                        contentDescription = "Original + Landmarks",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(img.width.toFloat() / img.height.toFloat())
+                            .padding(vertical = 4.dp)
+                            .border(1.dp, Color.Gray)
+                    )
+                } ?: Text("图像1未生成", modifier = Modifier.padding(vertical = 4.dp))
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text("2. 3D模型渲染", style = MaterialTheme.typography.titleMedium)
+                image2DebugBitmap?.let { img ->
+                    Image(
+                        bitmap = img.asImageBitmap(),
+                        contentDescription = "3D Model",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(img.width.toFloat() / img.height.toFloat())
+                            .padding(vertical = 4.dp)
+                            .border(1.dp, Color.Gray)
+                    )
+                } ?: Text("图像2未生成", modifier = Modifier.padding(vertical = 4.dp))
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text("3. 原始图像 + 特征点 + 3D模型", style = MaterialTheme.typography.titleMedium)
+                image3DebugBitmap?.let { img ->
+                    Image(
+                        bitmap = img.asImageBitmap(),
+                        contentDescription = "Combined Image",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(img.width.toFloat() / img.height.toFloat())
+                            .padding(vertical = 4.dp)
+                            .border(1.dp, Color.Gray)
+                    )
+                } ?: Text("图像3未生成", modifier = Modifier.padding(vertical = 4.dp))
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("关闭") }
+        }
+    )
+}
+
+private fun handleCaptureClick(
+    context: Context,
+    isRendererReady: Boolean,
+    isLoading: Boolean,
+    setLoading: (Boolean) -> Unit,
+    landmarkResult: FaceLandmarkerResult?,
+    cameraBitmap: Bitmap?,
+    renderer: ModelRender,
+    onDebugImagesGenerated: (Bitmap?, Bitmap?, Bitmap?) -> Unit
+) {
+    if (!isRendererReady) {
+        Toast.makeText(context, "Renderer not ready!", Toast.LENGTH_SHORT).show()
+        return
+    }
+    if (isLoading) return
+
+    setLoading(true)
+    Log.d("MainScreen", "拍摄按钮点击，开始生成调试图像...")
+
+    // Generate Image 2 (3D Model) first
+    renderer.applyLandmarkResultAndRender(landmarkResult)
+        .handle { bitmap, throwable ->
+            (context as? ComponentActivity)?.runOnUiThread {
+                setLoading(false)
+                if (throwable != null) {
+                    val cause = if (throwable is CompletionException) throwable.cause ?: throwable else throwable
+                    Log.e("MainScreen", "3D Model rendering failed", cause)
+                    Toast.makeText(
+                        context,
+                        "渲染失败: ${cause.message ?: "未知错误"}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    onDebugImagesGenerated(null, null, null)
+                } else if (bitmap != null) {
+                    Log.d("MainScreen", "3D Model (Image 2) rendered successfully.")
+                    var image1: Bitmap? = null
+                    var image3: Bitmap? = null
+
+                    if (cameraBitmap != null && landmarkResult != null) {
+                        image1 = drawFaceLandmarksOnBitmap(
+                            originalBitmap = cameraBitmap,
+                            landmarkResult = landmarkResult
+                        )
+                        Log.d("MainScreen", "Original + Landmarks (Image 1) generated.")
+
+                        if (image1 != null) {
+                            image3 = draw3DOverlayToBitmap(
+                                cameraImage = image1,
+                                modelImage = bitmap,
+                                landmarkResult = landmarkResult,
+                            )
+                            Log.d("MainScreen", "Combined image (Image 3) generated.")
+                        }
+                    }
+
+                    onDebugImagesGenerated(image1, bitmap, image3)
+                } else {
+                    Log.e("MainScreen", "3D Model rendering completed but bitmap was null.")
+                    onDebugImagesGenerated(null, null, null)
+                }
+            }
+        }
 }

@@ -290,7 +290,6 @@ fun MainScreen(
             if (hasCameraPermission) {
                 CameraPreviewWithLandmarks(
                     modifier = Modifier.fillMaxSize(),
-                    mediaPipeProcessor = mediaPipeProcessor, // 新增参数
                     landmarkResult = landmarkResult,
                     imageWidth = imageWidth,
                     imageHeight = imageHeight,
@@ -424,7 +423,6 @@ fun MainScreen(
 @Composable
 fun CameraPreviewWithLandmarks(
     modifier: Modifier = Modifier,
-    mediaPipeProcessor: MediaPipeProcessor,
     landmarkResult: FaceLandmarkerResult?,
     imageWidth: Int,
     imageHeight: Int,
@@ -432,10 +430,6 @@ fun CameraPreviewWithLandmarks(
     overlayEnabled: Boolean,
     cameraBitmap: Bitmap? // 新增相机预览图像
 ) {
-    val lifecycleOwner = LocalLifecycleOwner.current
-    val context = LocalContext.current
-
-    var localPreviewView: PreviewView? by remember { mutableStateOf(null) }
     var overlayWidth by remember { mutableStateOf(1) }
     var overlayHeight by remember { mutableStateOf(1) }
     var scaleFactor by remember { mutableStateOf(1f) }
